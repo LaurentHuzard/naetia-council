@@ -4,13 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 5173",
-    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "build:dependencies": "pnpm --filter @naetia/assembly-protocol build",
+    "dev": "pnpm run build:dependencies && vite --host 127.0.0.1 --port 5173",
+    "build": "pnpm run build:dependencies && tsc --noEmit -p tsconfig.json && vite build",
     "lint": "eslint . --max-warnings=0",
-    "test": "vitest run",
+    "test": "pnpm run build:dependencies && vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json --pretty false"
   },
   "dependencies": {
+    "@naetia/assembly-protocol": "workspace:*",
     "@tanstack/react-query": "^5.90.10",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

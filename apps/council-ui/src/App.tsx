@@ -13,7 +13,11 @@ export function App() {
       <AppHeader health={health} />
       <main className="main-content">
         <CouncilBoard health={health} councilSession={councilSession} />
-        <ActivityDock health={health} session={councilSession.session} />
+        <ActivityDock
+          health={health}
+          session={councilSession.session}
+          signalStatus={councilSession.signalStatus}
+        />
       </main>
     </div>
   );

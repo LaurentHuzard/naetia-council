@@ -1,3 +1,8 @@
+import {
+  councilEventSchema,
+  type CouncilEventMessage,
+} from '@naetia/assembly-protocol';
+
 export type AssemblyHealth = {
   status: 'ok';
   service?: string;
@@ -35,8 +40,9 @@ export type CouncilSessionSnapshot = {
   };
   status: 'created' | 'running' | 'completed';
   createdAt: string;
+  eventCursor: number;
   runs: AgentRunSnapshot[];
-  events: unknown[];
+  events: CouncilEventMessage[];
 };
 
 export type CreateCouncilSessionInput = {
@@ -158,6 +164,9 @@ function parseSessionSnapshot(value: unknown): CouncilSessionSnapshot {
     (value.quest.context === undefined || typeof value.quest.context === 'string');
   const validRuns =
     Array.isArray(value.runs) && value.runs.every(isAgentRunSnapshot);
+  const validEvents =
+    Array.isArray(value.events) &&
+    value.events.every((event) => councilEventSchema.safeParse(event).success);
 
   if (
     typeof value.sessionId !== 'string' ||
@@ -165,12 +174,19 @@ function parseSessionSnapshot(value: unknown): CouncilSessionSnapshot {
     typeof value.createdAt !== 'string' ||
     !validQuest ||
     !validRuns ||
-    !Array.isArray(value.events)
+    !Number.isInteger(value.eventCursor) ||
+    (value.eventCursor as number) < 0 ||
+    !validEvents
   ) {
     throw new Error('The Assembly a renvoyé un snapshot de session invalide.');
   }
 
-  return value as CouncilSessionSnapshot;
+  return {
+    ...(value as CouncilSessionSnapshot),
+    events: (value.events as unknown[]).map((event) =>
+      councilEventSchema.parse(event),
+    ),
+  };
 }
 
 function isAgentRunSnapshot(value: unknown): value is AgentRunSnapshot {

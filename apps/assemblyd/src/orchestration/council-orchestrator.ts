@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
 
 import type {
   AgentDefinition,
@@ -15,6 +16,7 @@ import {
 import {
   JournalError,
   SqliteEventJournal,
+  type JournalEntry,
 } from "../persistence/sqlite-event-journal.js";
 import {
   AgentProcessManager,
@@ -78,6 +80,7 @@ export interface SessionSnapshot {
   readonly quest: QuestSnapshot;
   readonly status: "created" | "running" | "completed";
   readonly createdAt: string;
+  readonly eventCursor: number;
   readonly runs: readonly RunSnapshot[];
   readonly events: readonly CouncilEventMessage[];
 }
@@ -131,12 +134,14 @@ export class CouncilOrchestrator {
   readonly #sessions = new Map<string, SessionRecord>();
   readonly #runToSession = new Map<string, string>();
   readonly #persistenceFailedRuns = new Set<string>();
+  readonly #publishedEvents = new EventEmitter();
   readonly #unsubscribe: () => void;
   #fatalPersistenceError: JournalError | undefined;
 
   constructor(options: CouncilOrchestratorOptions = {}) {
     this.#processManager = options.processManager ?? new AgentProcessManager();
     this.#journal = options.journal ?? new SqliteEventJournal(":memory:");
+    this.#publishedEvents.setMaxListeners(0);
 
     try {
       for (const event of this.#journal.readAll()) {
@@ -232,8 +237,8 @@ export class CouncilOrchestrator {
     ];
 
     const inserted = this.#journal.appendMany(preparedEvents);
-    for (const event of inserted) {
-      this.#applyCommitted(event);
+    for (const entry of inserted) {
+      this.#applyCommitted(entry);
     }
 
     for (const { definition, runId } of preparedRuns) {
@@ -339,11 +344,36 @@ export class CouncilOrchestrator {
   async close(): Promise<void> {
     await this.#processManager.close();
     this.#unsubscribe();
+    this.#publishedEvents.removeAllListeners();
     this.#journal.close();
   }
 
   assertPersistenceAvailable(): void {
     this.#assertPersistenceAvailable();
+  }
+
+  getSessionEventsAfter(
+    sessionId: string,
+    sequence: number,
+  ): readonly JournalEntry[] {
+    this.#assertPersistenceAvailable();
+    return this.#journal.readSessionEventsAfter(sessionId, sequence);
+  }
+
+  onSessionEvent(
+    sessionId: string,
+    listener: (entry: JournalEntry) => void,
+  ): () => void {
+    const eventName = sessionEventName(sessionId);
+    const safeListener = (entry: JournalEntry): void => {
+      try {
+        listener(entry);
+      } catch {
+        // A disconnected transport must never affect the durable orchestrator.
+      }
+    };
+    this.#publishedEvents.on(eventName, safeListener);
+    return () => this.#publishedEvents.off(eventName, safeListener);
   }
 
   #handleWorkerEvent(workerEvent: AgentWorkerEvent): void {
@@ -358,7 +388,7 @@ export class CouncilOrchestrator {
       return;
     }
 
-    let inserted: boolean;
+    let inserted: JournalEntry | undefined;
     try {
       inserted = this.#journal.append(event);
     } catch (error) {
@@ -370,8 +400,8 @@ export class CouncilOrchestrator {
       this.#processManager.cancel(workerEvent.runId);
       return;
     }
-    if (inserted) {
-      this.#applyCommitted(event);
+    if (inserted !== undefined) {
+      this.#applyCommitted(inserted);
     }
   }
 
@@ -471,12 +501,14 @@ export class CouncilOrchestrator {
 
   #persistAndApply(event: CouncilEventMessage): void {
     this.#assertPersistenceAvailable();
-    if (this.#journal.append(event)) {
-      this.#applyCommitted(event);
+    const inserted = this.#journal.append(event);
+    if (inserted !== undefined) {
+      this.#applyCommitted(inserted);
     }
   }
 
-  #applyCommitted(event: CouncilEventMessage): void {
+  #applyCommitted(entry: JournalEntry): void {
+    const { event } = entry;
     try {
       this.#apply(event);
     } catch (error) {
@@ -488,6 +520,7 @@ export class CouncilOrchestrator {
       this.#fatalPersistenceError = fatalError;
       throw fatalError;
     }
+    this.#publishedEvents.emit(sessionEventName(event.sessionId), entry);
   }
 
   #assertPersistenceAvailable(): void {
@@ -663,8 +696,8 @@ export class CouncilOrchestrator {
       }
     }
     const inserted = this.#journal.appendMany(events);
-    for (const event of inserted) {
-      this.#applyCommitted(event);
+    for (const entry of inserted) {
+      this.#applyCommitted(entry);
     }
   }
 
@@ -675,6 +708,7 @@ export class CouncilOrchestrator {
       quest: { ...session.quest },
       status: sessionStatus(runs),
       createdAt: session.createdAt,
+      eventCursor: this.#journal.latestSequence(session.sessionId),
       runs,
       events: session.events.map((event) => structuredClone(event)),
     };
@@ -687,6 +721,10 @@ export class CouncilOrchestrator {
     }
     return session;
   }
+}
+
+function sessionEventName(sessionId: string): string {
+  return `session:${sessionId}`;
 }
 
 function requireRun(session: SessionRecord, runId: string): MutableRunProjection {

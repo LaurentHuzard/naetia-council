@@ -107,6 +107,16 @@ input:focus-visible + .toggle {
   background: var(--teal);
 }
 
+.live-dot--connecting,
+.live-dot--reconnecting {
+  background: #c18419;
+}
+
+.live-dot--polling,
+.live-dot--idle {
+  background: #8d94a2;
+}
+
 .health-dot--offline {
   background: #ae4148;
 }

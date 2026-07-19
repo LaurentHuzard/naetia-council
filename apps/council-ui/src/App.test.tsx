@@ -9,7 +9,46 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
+import type { CouncilSessionSnapshot } from './api/assembly';
 import { useCouncilUiStore } from './state/council-ui-store';
+
+class FakeEventSource {
+  static instances: FakeEventSource[] = [];
+
+  readonly url: string;
+  onopen: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  closed = false;
+  readonly #listeners = new Map<string, (event: unknown) => void>();
+
+  constructor(url: string) {
+    this.url = url;
+    FakeEventSource.instances.push(this);
+  }
+
+  addEventListener(type: string, listener: (event: unknown) => void) {
+    this.#listeners.set(type, listener);
+  }
+
+  emitOpen() {
+    this.onopen?.();
+  }
+
+  emitError() {
+    this.onerror?.();
+  }
+
+  emitCouncilEvent(data: unknown, lastEventId: string) {
+    this.#listeners.get('council-event')?.({
+      data: JSON.stringify(data),
+      lastEventId,
+    });
+  }
+
+  close() {
+    this.closed = true;
+  }
+}
 
 function renderApp() {
   const queryClient = new QueryClient({
@@ -31,6 +70,7 @@ afterEach(() => {
     followsLiveActivity: true,
   });
   localStorage.clear();
+  FakeEventSource.instances = [];
   vi.unstubAllGlobals();
 });
 
@@ -92,6 +132,7 @@ describe('Naetia Council shell', () => {
       },
       status: 'running',
       createdAt: '2026-07-19T12:00:00.000Z',
+      eventCursor: 8,
       runs: [
         {
           runId: 'run-architect',
@@ -186,5 +227,107 @@ describe('Naetia Council shell', () => {
       expect.anything(),
     );
     expect(localStorage.getItem('naetia-council-ui')).toContain('session-1');
+  });
+
+  it('opens SSE after the snapshot and ignores a repeated cursor', async () => {
+    const baseRun = {
+      runId: 'run-architect',
+      sessionId: 'session-1',
+      agentId: 'architect',
+      agentDefinitionId: 'architect.v1',
+      status: 'running',
+      pid: 4201,
+      contribution: '',
+      startedAt: '2026-07-19T12:00:00.000Z',
+    } as const;
+    const createdSnapshot = {
+      sessionId: 'session-1',
+      quest: { questId: 'quest-1', title: 'Ouvrir la porte du royaume' },
+      status: 'created',
+      createdAt: '2026-07-19T12:00:00.000Z',
+      eventCursor: 1,
+      runs: [],
+      events: [],
+    } as const;
+    const runningSnapshot = {
+      ...createdSnapshot,
+      status: 'running',
+      eventCursor: 8,
+      runs: [baseRun],
+    } as const;
+    const deltaEvent = {
+      id: 'event-delta-1',
+      type: 'contribution.delta',
+      sessionId: 'session-1',
+      runId: 'run-architect',
+      occurredAt: '2026-07-19T12:00:01.000Z',
+      payload: {
+        contributionId: 'contribution-1',
+        delta: 'Signal SSE reçu.',
+        index: 0,
+      },
+    } as const;
+    let serverSnapshot: CouncilSessionSnapshot = {
+      ...runningSnapshot,
+      runs: [...runningSnapshot.runs],
+      events: [...runningSnapshot.events],
+    };
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === '/api/health') {
+          return new Response(JSON.stringify({ status: 'ok' }), { status: 200 });
+        }
+        if (path === '/api/sessions' && init?.method === 'POST') {
+          return new Response(JSON.stringify(createdSnapshot), { status: 201 });
+        }
+        if (path === '/api/sessions/session-1/convene') {
+          return new Response(JSON.stringify(runningSnapshot), { status: 202 });
+        }
+        if (path === '/api/sessions/session-1') {
+          return new Response(JSON.stringify(serverSnapshot), { status: 200 });
+        }
+        return new Response(null, { status: 404 });
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('EventSource', FakeEventSource);
+
+    const rendered = renderApp();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Convoquer le Council' }),
+    );
+
+    await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
+    const source = FakeEventSource.instances[0]!;
+    expect(source.url).toBe('/api/sessions/session-1/events?after=1');
+    source.emitOpen();
+    expect(await screen.findByText(/Flux direct/)).toBeVisible();
+    source.emitError();
+    expect(await screen.findByText(/Signal interrompu, reconnexion/)).toBeVisible();
+    source.emitOpen();
+
+    serverSnapshot = {
+      ...runningSnapshot,
+      eventCursor: 9,
+      runs: [{ ...baseRun, contribution: 'Signal SSE reçu.' }],
+      events: [deltaEvent],
+    };
+    source.emitCouncilEvent(deltaEvent, '9');
+    expect(await screen.findByText('Signal SSE reçu.')).toBeVisible();
+
+    const readsAfterFirstDelivery = fetchMock.mock.calls.filter(
+      ([input]) => String(input) === '/api/sessions/session-1',
+    ).length;
+    source.emitCouncilEvent(deltaEvent, '9');
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input]) => String(input) === '/api/sessions/session-1',
+      ),
+    ).toHaveLength(readsAfterFirstDelivery);
+
+    rendered.unmount();
+    expect(source.closed).toBe(true);
   });
 });
