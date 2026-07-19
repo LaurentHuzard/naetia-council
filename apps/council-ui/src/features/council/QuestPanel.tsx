@@ -58,10 +58,11 @@ export function QuestPanel({ health, councilSession }: QuestPanelProps) {
         </p>
       ) : null}
       {councilSession.sessionError !== null ||
-      councilSession.cancelError !== null ? (
+      councilSession.cancelError !== null ||
+      councilSession.signalError !== null ? (
         <p className="health-error" role="alert">
-          Le dernier signal de session a échoué. Les autres runs restent
-          indépendants.
+          Le dernier signal de session a échoué. Le snapshot autoritaire reste
+          affiché et la lecture périodique prend le relais.
         </p>
       ) : null}
     </section>

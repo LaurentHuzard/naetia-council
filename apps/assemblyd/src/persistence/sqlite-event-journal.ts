@@ -37,6 +37,11 @@ export interface SqliteEventJournalOptions {
   readonly busyTimeoutMs?: number;
 }
 
+export interface JournalEntry {
+  readonly sequence: number;
+  readonly event: CouncilEventMessage;
+}
+
 export class SqliteEventJournal {
   readonly #database: Database.Database;
   readonly #ownerFilePath: string | undefined;
@@ -76,11 +81,11 @@ export class SqliteEventJournal {
     }
   }
 
-  append(event: CouncilEventMessage): boolean {
-    return this.appendMany([event]).length === 1;
+  append(event: CouncilEventMessage): JournalEntry | undefined {
+    return this.appendMany([event])[0];
   }
 
-  appendMany(candidates: readonly CouncilEventMessage[]): readonly CouncilEventMessage[] {
+  appendMany(candidates: readonly CouncilEventMessage[]): readonly JournalEntry[] {
     const events = candidates.map((candidate) => parseCouncilEvent(candidate));
     try {
       const findById = this.#database.prepare(
@@ -98,7 +103,7 @@ export class SqliteEventJournal {
       `);
 
       const appendTransaction = this.#database.transaction(() => {
-        const inserted: CouncilEventMessage[] = [];
+        const inserted: JournalEntry[] = [];
         for (const event of events) {
           const eventJson = JSON.stringify(event);
           const existing = findById.get(event.id) as
@@ -114,7 +119,7 @@ export class SqliteEventJournal {
             continue;
           }
 
-          insert.run(
+          const result = insert.run(
             event.id,
             event.sessionId,
             "runId" in event ? event.runId : null,
@@ -122,7 +127,10 @@ export class SqliteEventJournal {
             event.occurredAt,
             eventJson,
           );
-          inserted.push(event);
+          inserted.push({
+            sequence: Number(result.lastInsertRowid),
+            event,
+          });
         }
         return inserted;
       });
@@ -158,6 +166,52 @@ export class SqliteEventJournal {
         throw error;
       }
       throw asJournalError(error, "Unable to read Council events");
+    }
+  }
+
+  readSessionEventsAfter(
+    sessionId: string,
+    sequence: number,
+  ): readonly JournalEntry[] {
+    if (!Number.isInteger(sequence) || sequence < 0) {
+      throw new Error("sequence must be a non-negative integer");
+    }
+    try {
+      const rows = this.#database
+        .prepare(`
+          SELECT sequence, event_json
+          FROM council_events
+          WHERE session_id = ? AND sequence > ?
+          ORDER BY sequence ASC
+        `)
+        .all(sessionId, sequence) as readonly Readonly<{
+          sequence: number;
+          event_json: string;
+        }>[];
+      return rows.map((row) => ({
+        sequence: row.sequence,
+        event: parseSerializedEvent(row.event_json),
+      }));
+    } catch (error) {
+      if (error instanceof JournalError) {
+        throw error;
+      }
+      throw asJournalError(error, "Unable to read session events");
+    }
+  }
+
+  latestSequence(sessionId: string): number {
+    try {
+      const row = this.#database
+        .prepare(`
+          SELECT COALESCE(MAX(sequence), 0) AS sequence
+          FROM council_events
+          WHERE session_id = ?
+        `)
+        .get(sessionId) as Readonly<{ sequence: number }>;
+      return row.sequence;
+    } catch (error) {
+      throw asJournalError(error, "Unable to read the session event cursor");
     }
   }
 
@@ -315,4 +369,16 @@ function asJournalError(error: unknown, message: string): JournalError {
     return error;
   }
   return new JournalError("PERSISTENCE_UNAVAILABLE", message, { cause: error });
+}
+
+function parseSerializedEvent(eventJson: string): CouncilEventMessage {
+  try {
+    return parseCouncilEvent(JSON.parse(eventJson));
+  } catch (error) {
+    throw new JournalError(
+      "CORRUPT_JOURNAL",
+      "The Assembly event journal contains an invalid event",
+      { cause: error },
+    );
+  }
 }

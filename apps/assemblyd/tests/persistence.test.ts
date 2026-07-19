@@ -32,7 +32,7 @@ describe.sequential("SQLite Council event journal", () => {
     const event = sessionCreatedEvent();
 
     const firstJournal = new SqliteEventJournal(databasePath);
-    expect(firstJournal.append(event)).toBe(true);
+    expect(firstJournal.append(event)).toEqual({ sequence: 1, event });
     firstJournal.close();
 
     const secondJournal = new SqliteEventJournal(databasePath);
@@ -44,8 +44,8 @@ describe.sequential("SQLite Council event journal", () => {
   it("deduplicates identical events and rejects identifier collisions", () => {
     const journal = new SqliteEventJournal(temporaryDatabasePath());
     const event = sessionCreatedEvent();
-    expect(journal.append(event)).toBe(true);
-    expect(journal.append(event)).toBe(false);
+    expect(journal.append(event)).toEqual({ sequence: 1, event });
+    expect(journal.append(event)).toBeUndefined();
 
     const collision = parseCouncilEvent({
       ...event,
@@ -175,6 +175,41 @@ describe.sequential("SQLite Council event journal", () => {
     const reopened = new SqliteEventJournal(databasePath);
     expect(reopened.countEvents()).toBe(0);
     reopened.close();
+  });
+
+  it("reads only one session after an exclusive sequence cursor", () => {
+    const journal = new SqliteEventJournal(temporaryDatabasePath());
+    const firstSession = sessionCreatedEvent();
+    const otherSession = sessionCreatedEvent();
+    const firstEntry = journal.append(firstSession);
+    journal.append(otherSession);
+    const laterEvent = parseCouncilEvent({
+      id: randomUUID(),
+      type: "session.convened",
+      sessionId: firstSession.sessionId,
+      occurredAt: "2026-07-19T12:00:01.000Z",
+      payload: {
+        agentDefinitions: [
+          {
+            id: "architect.v1",
+            role: "architect",
+            name: "Architect",
+            perspective: "Structure.",
+            instructions: "Clarifie.",
+            version: 1,
+          },
+        ],
+      },
+    });
+    const laterEntry = journal.append(laterEvent);
+
+    expect(firstEntry?.sequence).toBe(1);
+    expect(laterEntry?.sequence).toBe(3);
+    expect(journal.readSessionEventsAfter(firstSession.sessionId, 1)).toEqual([
+      laterEntry,
+    ]);
+    expect(journal.latestSequence(firstSession.sessionId)).toBe(3);
+    journal.close();
   });
 
   it("allows only one live Assembly owner for a file journal", () => {

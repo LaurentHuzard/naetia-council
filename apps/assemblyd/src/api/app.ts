@@ -1,3 +1,5 @@
+import type { ServerResponse } from "node:http";
+
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 
@@ -6,7 +8,13 @@ import { resolveAssemblyDatabasePath } from "../persistence/database-path.js";
 import {
   JournalError,
   SqliteEventJournal,
+  type JournalEntry,
 } from "../persistence/sqlite-event-journal.js";
+import {
+  eventStreamQuerySchema,
+  formatSseEntry,
+  resolveEventCursor,
+} from "./sse.js";
 
 const createSessionBodySchema = z
   .object({
@@ -28,6 +36,7 @@ const runIdParamsSchema = z.object({
 });
 
 const DEFAULT_FAKE_MODEL_DELAY_MS = 200;
+const SSE_HEARTBEAT_MS = 15_000;
 
 export interface BuildAppOptions {
   readonly orchestrator?: CouncilOrchestrator;
@@ -52,6 +61,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const fakeModelDelayMs =
     options.fakeModelDelayMs ??
     parseFakeModelDelay(process.env["FAKE_MODEL_DELAY_MS"]);
+  const eventStreams = new Set<ServerResponse>();
 
   app.get("/health", async () => {
     orchestrator.assertPersistenceAvailable();
@@ -135,6 +145,109 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     return session;
   });
 
+  app.get("/sessions/:sessionId/events", async (request, reply) => {
+    const params = idParamsSchema.safeParse(request.params);
+    const query = eventStreamQuerySchema.safeParse(request.query);
+    let cursor: number;
+    try {
+      cursor = resolveEventCursor(
+        query.success ? query.data.after : undefined,
+        request.headers["last-event-id"],
+      );
+    } catch {
+      return reply.code(400).send({
+        error: "INVALID_REQUEST",
+        message: "A valid event cursor is required",
+      });
+    }
+    if (!params.success || !query.success) {
+      return reply.code(400).send({
+        error: "INVALID_REQUEST",
+        message: "A valid session id and event cursor are required",
+      });
+    }
+    if (orchestrator.getSession(params.data.sessionId) === undefined) {
+      return reply.code(404).send({
+        error: "SESSION_NOT_FOUND",
+        message: "Council session not found",
+      });
+    }
+
+    const pending: JournalEntry[] = [];
+    let isStreaming = false;
+    let lastSentSequence = cursor;
+    let cleanedUp = false;
+    const response = reply.raw;
+    const writeEntry = (entry: JournalEntry): void => {
+      if (entry.sequence <= lastSentSequence || response.writableEnded) {
+        return;
+      }
+      response.write(formatSseEntry(entry));
+      lastSentSequence = entry.sequence;
+    };
+    const unsubscribe = orchestrator.onSessionEvent(
+      params.data.sessionId,
+      (entry) => {
+        if (isStreaming) {
+          writeEntry(entry);
+        } else {
+          pending.push(entry);
+        }
+      },
+    );
+
+    let backlog: readonly JournalEntry[];
+    try {
+      backlog = orchestrator.getSessionEventsAfter(
+        params.data.sessionId,
+        cursor,
+      );
+    } catch (error) {
+      unsubscribe();
+      throw error;
+    }
+
+    const heartbeat = setInterval(() => {
+      if (!response.writableEnded) {
+        response.write(": heartbeat\n\n");
+      }
+    }, SSE_HEARTBEAT_MS);
+    heartbeat.unref();
+
+    const cleanup = (): void => {
+      if (cleanedUp) {
+        return;
+      }
+      cleanedUp = true;
+      unsubscribe();
+      clearInterval(heartbeat);
+      eventStreams.delete(response);
+    };
+
+    reply.hijack();
+    response.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    });
+    response.write("retry: 1000\n\n");
+    eventStreams.add(response);
+    response.once("close", cleanup);
+    request.raw.once("aborted", cleanup);
+
+    for (const entry of backlog) {
+      writeEntry(entry);
+    }
+    isStreaming = true;
+    for (const entry of [...pending].sort(
+      (left, right) => left.sequence - right.sequence,
+    )) {
+      writeEntry(entry);
+    }
+    return reply;
+  });
+
   app.post("/runs/:runId/cancel", async (request, reply) => {
     const params = runIdParamsSchema.safeParse(request.params);
     if (!params.success) {
@@ -151,6 +264,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       });
     }
     return reply.code(202).send({ run });
+  });
+
+  app.addHook("preClose", async () => {
+    for (const response of eventStreams) {
+      response.end();
+    }
+    eventStreams.clear();
   });
 
   app.addHook("onClose", async () => {
