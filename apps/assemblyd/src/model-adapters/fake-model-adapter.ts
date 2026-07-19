@@ -30,6 +30,7 @@ export class FakeModelAdapter implements ModelAdapter {
     request: ModelRequest,
     signal: AbortSignal,
   ): AsyncIterable<ModelEvent> {
+    const startedAt = Date.now();
     const chunks = request.empty
       ? []
       : [
@@ -51,7 +52,14 @@ export class FakeModelAdapter implements ModelAdapter {
     }
 
     throwIfAborted(signal);
-    yield { type: "completed", content };
+    yield {
+      type: "completed",
+      content,
+      execution: {
+        adapter: "fake",
+        durationMs: Date.now() - startedAt,
+      },
+    };
   }
 }
 

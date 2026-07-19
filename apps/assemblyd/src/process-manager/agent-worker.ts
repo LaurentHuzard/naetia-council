@@ -3,12 +3,18 @@ import { randomUUID } from "node:crypto";
 import {
   agentWorkerCommandSchema,
   agentWorkerEventSchema,
+  type AgentWorkerModelOptions,
   type AgentWorkerCommand,
   type AgentWorkerEvent,
 } from "@naetia/assembly-protocol";
 
+import { CodexCliModelAdapter } from "../model-adapters/codex-cli-model-adapter.js";
 import { FakeModelAdapter } from "../model-adapters/fake-model-adapter.js";
-import type { ModelRequest } from "../model-adapters/model-adapter.js";
+import {
+  ModelAdapterError,
+  type ModelAdapter,
+  type ModelRequest,
+} from "../model-adapters/model-adapter.js";
 
 let activeRun:
   | Readonly<{
@@ -28,6 +34,9 @@ process.on("message", (rawMessage: unknown) => {
 
   handleCommand(parsed.data);
 });
+process.on("disconnect", abortActiveRun);
+process.once("SIGTERM", abortActiveRun);
+process.once("SIGINT", abortActiveRun);
 
 function handleCommand(command: AgentWorkerCommand): void {
   if (command.type === "cancel") {
@@ -77,32 +86,38 @@ async function executeRun(
     sendStatus(baseEvent, "running");
 
     const request: ModelRequest = {
-      agentId: command.agentId,
+      agentId: command.agentDefinition.role,
+      agentName: command.agentDefinition.name,
+      perspective: command.agentDefinition.perspective,
+      instructions: command.agentDefinition.instructions,
       quest: {
         title: command.quest.title,
         ...(command.quest.context === undefined
           ? {}
           : { context: command.quest.context }),
       },
-      ...(command.model?.latencyMs === undefined
+      ...(command.model.adapter !== "fake" ||
+      command.model.latencyMs === undefined
         ? {}
         : { latencyMs: command.model.latencyMs }),
-      ...(command.model?.failAtDelta === undefined
+      ...(command.model.adapter !== "fake" ||
+      command.model.failAtDelta === undefined
         ? {}
         : { failAtDelta: command.model.failAtDelta }),
-      ...(command.model?.empty === undefined
+      ...(command.model.adapter !== "fake" || command.model.empty === undefined
         ? {}
         : { empty: command.model.empty }),
     };
 
-    const adapter = new FakeModelAdapter();
+    const adapter = createModelAdapter(command.model);
     for await (const modelEvent of adapter.stream(
       request,
       abortController.signal,
     )) {
       if (
         modelEvent.type === "delta" &&
-        command.model?.crashAtDelta === modelEvent.index
+        command.model.adapter === "fake" &&
+        command.model.crashAtDelta === modelEvent.index
       ) {
         process.exit(86);
       }
@@ -121,7 +136,7 @@ async function executeRun(
       }
 
       if (modelEvent.content.length === 0) {
-        throw new Error("The fake model produced an empty contribution");
+        throw new Error("The model produced an empty contribution");
       }
 
       sendEvent({
@@ -131,6 +146,7 @@ async function executeRun(
         occurredAt: new Date().toISOString(),
         contributionId,
         content: modelEvent.content,
+        modelExecution: modelEvent.execution,
       });
       sendStatus(baseEvent, "completed");
     }
@@ -144,7 +160,8 @@ async function executeRun(
         ...baseEvent,
         occurredAt: new Date().toISOString(),
         error: {
-          code: "MODEL_ERROR",
+          code:
+            error instanceof ModelAdapterError ? error.code : "MODEL_ERROR",
           message: error instanceof Error ? error.message : "Unknown model error",
         },
       });
@@ -153,6 +170,21 @@ async function executeRun(
     activeRun = undefined;
     process.disconnect();
   }
+}
+
+function createModelAdapter(model: AgentWorkerModelOptions): ModelAdapter {
+  if (model.adapter === "fake") {
+    return new FakeModelAdapter();
+  }
+  return new CodexCliModelAdapter({
+    executablePath: model.executablePath,
+    ...(model.model === undefined ? {} : { model: model.model }),
+    revealDelayMs: model.revealDelayMs,
+  });
+}
+
+function abortActiveRun(): void {
+  activeRun?.abortController.abort();
 }
 
 function sendStatus(

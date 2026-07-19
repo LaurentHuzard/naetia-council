@@ -60,6 +60,10 @@ process.once("message", (rawMessage: unknown) => {
     eventId: randomUUID(),
     contributionId: duplicateDelta.contributionId,
     content: duplicateDelta.delta,
+    modelExecution: {
+      adapter: "fake",
+      durationMs: 1,
+    },
   });
   process.send?.({
     ...base,

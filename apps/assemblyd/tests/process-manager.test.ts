@@ -12,6 +12,7 @@ import {
   type RunSnapshot,
 } from "../src/process-manager/process-manager.js";
 import type { AgentWorkerEvent } from "@naetia/assembly-protocol";
+import type { AgentDefinition, AgentRole } from "@naetia/assembly-domain";
 
 const orchestrators: CouncilOrchestrator[] = [];
 const processManagers: AgentProcessManager[] = [];
@@ -174,8 +175,9 @@ describe.sequential("The Assembly process boundary", () => {
     const run = manager.spawn({
       runId: randomUUID(),
       sessionId: randomUUID(),
-      agentId: "architect",
+      agentDefinition: definition("architect"),
       quest: { title: "invalid-ipc" },
+      model: { adapter: "fake" },
     });
 
     const failed = await waitForRun(
@@ -196,8 +198,9 @@ describe.sequential("The Assembly process boundary", () => {
     const run = manager.spawn({
       runId: randomUUID(),
       sessionId: randomUUID(),
-      agentId: "trickster",
+      agentDefinition: definition("trickster"),
       quest: { title: "duplicate-event" },
+      model: { adapter: "fake" },
     });
 
     const completed = await waitForRun(
@@ -225,6 +228,17 @@ function trackedScriptedManager(): AgentProcessManager {
   });
   processManagers.push(manager);
   return manager;
+}
+
+function definition(role: AgentRole): AgentDefinition {
+  return {
+    id: `${role}-v1`,
+    role,
+    name: role[0]!.toUpperCase() + role.slice(1),
+    perspective: `Perspective ${role}`,
+    instructions: `Instructions ${role}`,
+    version: 1,
+  };
 }
 
 async function waitForSession(

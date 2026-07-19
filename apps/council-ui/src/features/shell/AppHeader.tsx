@@ -13,7 +13,9 @@ function getHealthLabel(health: AssemblyHealthQuery) {
     return 'indisponible';
   }
 
-  return 'disponible';
+  return health.data.modelAdapter === 'codex-cli'
+    ? 'disponible · Codex CLI'
+    : 'disponible · Faux modèle';
 }
 
 export function AppHeader({ health }: AppHeaderProps) {

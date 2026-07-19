@@ -17,6 +17,25 @@ export const agentRunStatusSchema = z.enum([
 export const sessionStatusSchema = z.enum(["draft", "convening", "active", "completed"]);
 export const contributionStatusSchema = z.enum(["streaming", "completed"]);
 export const fragmentStatusSchema = z.enum(["available", "kept", "challenged", "composted"]);
+export const modelAdapterSchema = z.enum(["fake", "codex-cli"]);
+
+export const modelUsageSchema = z
+  .object({
+    inputTokens: z.number().int().nonnegative(),
+    cachedInputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+    reasoningOutputTokens: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const modelExecutionSchema = z
+  .object({
+    adapter: modelAdapterSchema,
+    model: z.string().trim().min(1).optional(),
+    durationMs: z.number().int().nonnegative(),
+    usage: modelUsageSchema.optional(),
+  })
+  .strict();
 
 export const questSchema = z
   .object({
@@ -214,7 +233,12 @@ export const councilEventSchema = z.discriminatedUnion("type", [
     .object({
       ...runEventEnvelopeShape,
       type: z.literal("contribution.completed"),
-      payload: z.object({ contribution: contributionSchema }).strict(),
+      payload: z
+        .object({
+          contribution: contributionSchema,
+          modelExecution: modelExecutionSchema.optional(),
+        })
+        .strict(),
     })
     .strict(),
   z
@@ -338,6 +362,7 @@ export const assemblyCommandSchema = z.discriminatedUnion("type", [
 
 const fakeModelOptionsSchema = z
   .object({
+    adapter: z.literal("fake"),
     latencyMs: z.number().int().nonnegative().optional(),
     failAtDelta: z.number().int().nonnegative().optional(),
     crashAtDelta: z.number().int().nonnegative().optional(),
@@ -345,20 +370,34 @@ const fakeModelOptionsSchema = z
   })
   .strict();
 
+const codexCliModelOptionsSchema = z
+  .object({
+    adapter: z.literal("codex-cli"),
+    executablePath: nonEmptyTextSchema,
+    model: nonEmptyTextSchema.optional(),
+    revealDelayMs: z.number().int().nonnegative().max(5_000),
+  })
+  .strict();
+
+export const agentWorkerModelOptionsSchema = z.discriminatedUnion("adapter", [
+  fakeModelOptionsSchema,
+  codexCliModelOptionsSchema,
+]);
+
 export const agentWorkerCommandSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("start"),
       runId: identifierSchema,
       sessionId: identifierSchema,
-      agentId: agentRoleSchema,
+      agentDefinition: agentDefinitionSchema,
       quest: z
         .object({
           title: nonEmptyTextSchema,
           context: z.string().optional(),
         })
         .strict(),
-      model: fakeModelOptionsSchema.optional(),
+      model: agentWorkerModelOptionsSchema,
     })
     .strict(),
   z
@@ -400,6 +439,7 @@ export const agentWorkerEventSchema = z.discriminatedUnion("type", [
       type: z.literal("completed"),
       contributionId: identifierSchema,
       content: z.string().trim().min(1),
+      modelExecution: modelExecutionSchema,
     })
     .strict(),
   z
@@ -422,8 +462,12 @@ export type FragmentMessage = z.infer<typeof fragmentSchema>;
 export type DecisionMessage = z.infer<typeof decisionSchema>;
 export type DecisionSourceMessage = z.infer<typeof decisionSourceSchema>;
 export type ReturnPointMessage = z.infer<typeof returnPointSchema>;
+export type ModelAdapterMessage = z.infer<typeof modelAdapterSchema>;
+export type ModelUsageMessage = z.infer<typeof modelUsageSchema>;
+export type ModelExecutionMessage = z.infer<typeof modelExecutionSchema>;
 export type CouncilEventMessage = z.infer<typeof councilEventSchema>;
 export type AssemblyCommand = z.infer<typeof assemblyCommandSchema>;
+export type AgentWorkerModelOptions = z.infer<typeof agentWorkerModelOptionsSchema>;
 export type AgentWorkerCommand = z.infer<typeof agentWorkerCommandSchema>;
 export type AgentWorkerEvent = z.infer<typeof agentWorkerEventSchema>;
 

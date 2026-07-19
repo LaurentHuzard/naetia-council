@@ -3,6 +3,10 @@ import type { ServerResponse } from "node:http";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 
+import {
+  resolveModelRuntime,
+  type ModelRuntime,
+} from "../model-adapters/model-runtime.js";
 import { CouncilOrchestrator } from "../orchestration/council-orchestrator.js";
 import { resolveAssemblyDatabasePath } from "../persistence/database-path.js";
 import {
@@ -10,6 +14,7 @@ import {
   SqliteEventJournal,
   type JournalEntry,
 } from "../persistence/sqlite-event-journal.js";
+import { AgentProcessManager } from "../process-manager/process-manager.js";
 import {
   eventStreamQuerySchema,
   formatSseEntry,
@@ -43,13 +48,19 @@ export interface BuildAppOptions {
   readonly fakeModelDelayMs?: number;
   readonly databasePath?: string;
   readonly databaseBusyTimeoutMs?: number;
+  readonly modelRuntime?: ModelRuntime;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: false });
+  const modelRuntime = options.modelRuntime ?? resolveModelRuntime();
   const orchestrator =
     options.orchestrator ??
     new CouncilOrchestrator({
+      processManager: new AgentProcessManager({
+        defaultTimeoutMs: modelRuntime.runTimeoutMs,
+        workerEnvironment: modelRuntime.workerEnvironment,
+      }),
       journal: new SqliteEventJournal(
         options.databasePath ??
           resolveAssemblyDatabasePath(process.env["ASSEMBLY_DB_PATH"]),
@@ -57,10 +68,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
           ? {}
           : { busyTimeoutMs: options.databaseBusyTimeoutMs },
       ),
+      model: modelRuntime.model,
     });
   const fakeModelDelayMs =
     options.fakeModelDelayMs ??
-    parseFakeModelDelay(process.env["FAKE_MODEL_DELAY_MS"]);
+    (modelRuntime.adapter === "fake"
+      ? parseFakeModelDelay(process.env["FAKE_MODEL_DELAY_MS"])
+      : DEFAULT_FAKE_MODEL_DELAY_MS);
   const eventStreams = new Set<ServerResponse>();
 
   app.get("/health", async () => {
@@ -68,6 +82,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     return {
       status: "ok",
       service: "assemblyd",
+      modelAdapter: modelRuntime.adapter,
+      ...(modelRuntime.model.adapter !== "codex-cli" ||
+      modelRuntime.model.model === undefined
+        ? {}
+        : { model: modelRuntime.model.model }),
     };
   });
 

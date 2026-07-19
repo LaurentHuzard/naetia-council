@@ -9,6 +9,14 @@ import {
 } from "../src/index.js";
 
 const occurredAt = "2026-07-19T10:00:00.000Z";
+const architectDefinition = {
+  id: "architect.v1",
+  role: "architect",
+  name: "Architect",
+  perspective: "Structure et clarifie.",
+  instructions: "Dégage le prochain geste vérifiable.",
+  version: 1,
+} as const;
 
 describe("council events", () => {
   it("accepts a serializable run event envelope", () => {
@@ -62,9 +70,9 @@ describe("agent worker IPC", () => {
       type: "start",
       runId: "run-architect",
       sessionId: "session-1",
-      agentId: "architect",
+      agentDefinition: architectDefinition,
       quest: { title: "Ouvrir la porte" },
-      model: { latencyMs: 5, failAtDelta: 2 },
+      model: { adapter: "fake", latencyMs: 5, failAtDelta: 2 },
     });
 
     expect(command.type).toBe("start");
@@ -75,8 +83,9 @@ describe("agent worker IPC", () => {
       type: "start",
       runId: "run-1",
       sessionId: "session-1",
-      agentId: "oracle",
+      agentDefinition: { ...architectDefinition, role: "oracle" },
       quest: { title: "" },
+      model: { adapter: "fake" },
     });
 
     expect(result.success).toBe(false);

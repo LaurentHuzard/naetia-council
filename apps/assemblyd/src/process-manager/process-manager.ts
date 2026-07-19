@@ -8,9 +8,14 @@ import { fileURLToPath } from "node:url";
 import {
   agentWorkerCommandSchema,
   agentWorkerEventSchema,
+  type AgentWorkerModelOptions,
   type AgentWorkerEvent,
 } from "@naetia/assembly-protocol";
-import type { AgentRole, AgentRunStatus } from "@naetia/assembly-domain";
+import type {
+  AgentDefinition,
+  AgentRole,
+  AgentRunStatus,
+} from "@naetia/assembly-domain";
 
 const TERMINAL_STATUSES = new Set<AgentRunStatus>([
   "completed",
@@ -18,19 +23,14 @@ const TERMINAL_STATUSES = new Set<AgentRunStatus>([
   "cancelled",
 ]);
 const DEFAULT_TIMEOUT_MS = 10_000;
-const FORCE_KILL_GRACE_MS = 250;
+const FORCE_KILL_GRACE_MS = 2_000;
 
 export interface SpawnRunInput {
   readonly runId: string;
   readonly sessionId: string;
-  readonly agentId: AgentRole;
+  readonly agentDefinition: AgentDefinition;
   readonly quest: Readonly<{ title: string; context?: string }>;
-  readonly model?: Readonly<{
-    latencyMs?: number;
-    failAtDelta?: number;
-    crashAtDelta?: number;
-    empty?: boolean;
-  }>;
+  readonly model: AgentWorkerModelOptions;
   readonly timeoutMs?: number;
 }
 
@@ -66,6 +66,7 @@ export interface ProcessManagerOptions {
   readonly workerPath?: string;
   readonly workerExecArgv?: readonly string[];
   readonly defaultTimeoutMs?: number;
+  readonly workerEnvironment?: NodeJS.ProcessEnv;
 }
 
 export class AgentProcessManager {
@@ -75,11 +76,13 @@ export class AgentProcessManager {
   readonly #workerPath: string;
   readonly #workerExecArgv: readonly string[];
   readonly #defaultTimeoutMs: number;
+  readonly #workerEnvironment: NodeJS.ProcessEnv;
 
   constructor(options: ProcessManagerOptions = {}) {
     this.#workerPath = options.workerPath ?? resolveWorkerPath();
     this.#workerExecArgv = options.workerExecArgv ?? [];
     this.#defaultTimeoutMs = options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#workerEnvironment = { ...(options.workerEnvironment ?? {}) };
   }
 
   onEvent(listener: (event: AgentWorkerEvent) => void): () => void {
@@ -98,6 +101,7 @@ export class AgentProcessManager {
       execArgv: [...this.#workerExecArgv],
       env: {
         NODE_ENV: process.env["NODE_ENV"] ?? "development",
+        ...this.#workerEnvironment,
       },
     });
     if (child.pid === undefined) {
@@ -108,7 +112,7 @@ export class AgentProcessManager {
     const run: MutableRun = {
       runId: input.runId,
       sessionId: input.sessionId,
-      agentId: input.agentId,
+      agentId: input.agentDefinition.role,
       status: "pending",
       pid: child.pid,
       contribution: "",
@@ -135,9 +139,9 @@ export class AgentProcessManager {
       type: "start",
       runId: input.runId,
       sessionId: input.sessionId,
-      agentId: input.agentId,
+      agentDefinition: input.agentDefinition,
       quest: input.quest,
-    ...(input.model === undefined ? {} : { model: input.model }),
+      model: input.model,
     });
     child.send(command);
 
@@ -162,7 +166,7 @@ export class AgentProcessManager {
     }
     run.killTimer = setTimeout(() => {
       if (!TERMINAL_STATUSES.has(run.status)) {
-        run.child.kill("SIGTERM");
+        run.child.kill("SIGKILL");
       }
     }, FORCE_KILL_GRACE_MS);
 
@@ -283,7 +287,13 @@ export class AgentProcessManager {
     }
 
     this.#failRun(run, "RUN_TIMEOUT", "Agent run exceeded its time budget");
-    run.child.kill("SIGTERM");
+    if (run.child.connected) {
+      run.child.send(agentWorkerCommandSchema.parse({ type: "cancel", runId }));
+    }
+    run.killTimer = setTimeout(
+      () => run.child.kill("SIGKILL"),
+      FORCE_KILL_GRACE_MS,
+    );
   }
 
   #failRun(run: MutableRun, code: string, message: string): void {
