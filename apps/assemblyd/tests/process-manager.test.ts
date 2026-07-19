@@ -46,7 +46,9 @@ describe.sequential("The Assembly process boundary", () => {
         session.runs.some((run) => run.contribution.length > 0) &&
         session.runs.some((run) => run.status === "running"),
     );
-    expect(partial.events.some((event) => event.type === "delta")).toBe(true);
+    expect(
+      partial.events.some((event) => event.type === "contribution.delta"),
+    ).toBe(true);
     expect(partial.runs.some((run) => run.status !== "completed")).toBe(true);
 
     const completed = await waitForSession(
@@ -61,7 +63,10 @@ describe.sequential("The Assembly process boundary", () => {
       "trickster",
     ]);
     expect(completed.runs.every((run) => run.contribution.length > 0)).toBe(true);
-    expect(completed.events.filter((event) => event.type === "delta").length).toBeGreaterThanOrEqual(12);
+    expect(
+      completed.events.filter((event) => event.type === "contribution.delta")
+        .length,
+    ).toBeGreaterThanOrEqual(12);
   });
 
   it("cancels Guardian without cancelling the other runs", async () => {

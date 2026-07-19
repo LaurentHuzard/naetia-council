@@ -90,8 +90,10 @@ export function AgentCard({ agent, run, cancelling, onCancel }: AgentCardProps) 
       <div className="agent-section agent-activity">
         <h3>Activité</h3>
         <p>{getActivity(run)}</p>
-        {run !== undefined ? (
+        {run?.pid !== undefined ? (
           <p className="process-id">Processus Node #{run.pid}</p>
+        ) : run !== undefined ? (
+          <p className="process-id">Exécution restaurée du journal</p>
         ) : null}
       </div>
 

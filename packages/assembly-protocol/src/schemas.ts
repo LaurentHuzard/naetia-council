@@ -150,7 +150,7 @@ export const councilEventSchema = z.discriminatedUnion("type", [
     .object({
       ...eventEnvelopeShape,
       type: z.literal("session.convened"),
-      payload: z.object({ agentDefinitionIds: z.array(identifierSchema).min(1) }).strict(),
+      payload: z.object({ agentDefinitions: z.array(agentDefinitionSchema).min(1) }).strict(),
     })
     .strict(),
   z

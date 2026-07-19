@@ -17,8 +17,9 @@ export type AgentRunSnapshot = {
   runId: string;
   sessionId: string;
   agentId: 'architect' | 'trickster' | 'guardian';
+  agentDefinitionId: string;
   status: AgentRunStatus;
-  pid: number;
+  pid?: number;
   contribution: string;
   startedAt?: string;
   completedAt?: string;
@@ -183,9 +184,10 @@ function isAgentRunSnapshot(value: unknown): value is AgentRunSnapshot {
     (value.agentId === 'architect' ||
       value.agentId === 'trickster' ||
       value.agentId === 'guardian') &&
+    typeof value.agentDefinitionId === 'string' &&
     typeof value.status === 'string' &&
     agentRunStatuses.includes(value.status) &&
-    typeof value.pid === 'number' &&
+    (value.pid === undefined || typeof value.pid === 'number') &&
     typeof value.contribution === 'string'
   );
 }

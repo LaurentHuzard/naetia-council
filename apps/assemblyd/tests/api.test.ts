@@ -53,7 +53,7 @@ describe.sequential("assemblyd HTTP API", () => {
 });
 
 function trackedApp(): ReturnType<typeof buildApp> {
-  const app = buildApp();
+  const app = buildApp({ databasePath: ":memory:" });
   apps.push(app);
   return app;
 }

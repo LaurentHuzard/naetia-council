@@ -2,6 +2,11 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { CouncilOrchestrator } from "../orchestration/council-orchestrator.js";
+import { resolveAssemblyDatabasePath } from "../persistence/database-path.js";
+import {
+  JournalError,
+  SqliteEventJournal,
+} from "../persistence/sqlite-event-journal.js";
 
 const createSessionBodySchema = z
   .object({
@@ -27,19 +32,47 @@ const DEFAULT_FAKE_MODEL_DELAY_MS = 200;
 export interface BuildAppOptions {
   readonly orchestrator?: CouncilOrchestrator;
   readonly fakeModelDelayMs?: number;
+  readonly databasePath?: string;
+  readonly databaseBusyTimeoutMs?: number;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: false });
-  const orchestrator = options.orchestrator ?? new CouncilOrchestrator();
+  const orchestrator =
+    options.orchestrator ??
+    new CouncilOrchestrator({
+      journal: new SqliteEventJournal(
+        options.databasePath ??
+          resolveAssemblyDatabasePath(process.env["ASSEMBLY_DB_PATH"]),
+        options.databaseBusyTimeoutMs === undefined
+          ? {}
+          : { busyTimeoutMs: options.databaseBusyTimeoutMs },
+      ),
+    });
   const fakeModelDelayMs =
     options.fakeModelDelayMs ??
     parseFakeModelDelay(process.env["FAKE_MODEL_DELAY_MS"]);
 
-  app.get("/health", async () => ({
-    status: "ok",
-    service: "assemblyd",
-  }));
+  app.get("/health", async () => {
+    orchestrator.assertPersistenceAvailable();
+    return {
+      status: "ok",
+      service: "assemblyd",
+    };
+  });
+
+  app.setErrorHandler((error, _request, reply) => {
+    if (
+      error instanceof JournalError &&
+      error.code === "PERSISTENCE_UNAVAILABLE"
+    ) {
+      return reply.code(503).send({
+        error: "PERSISTENCE_UNAVAILABLE",
+        message: "The Assembly journal is temporarily unavailable",
+      });
+    }
+    return reply.send(error);
+  });
 
   app.post("/sessions", async (request, reply) => {
     const body = createSessionBodySchema.safeParse(request.body);

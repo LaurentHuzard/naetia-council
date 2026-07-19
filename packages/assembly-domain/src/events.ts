@@ -1,5 +1,5 @@
 import type {
-  AgentDefinitionId,
+  AgentDefinition,
   AgentRun,
   AgentRunFailure,
   AgentRunId,
@@ -36,7 +36,7 @@ export type SessionCreatedEvent = EventEnvelope<
 
 export type SessionConvenedEvent = EventEnvelope<
   "session.convened",
-  { readonly agentDefinitionIds: readonly AgentDefinitionId[] }
+  { readonly agentDefinitions: readonly AgentDefinition[] }
 >;
 
 export type AgentRunSpawnedEvent = RunEventEnvelope<
