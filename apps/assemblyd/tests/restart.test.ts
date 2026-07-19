@@ -36,7 +36,27 @@ describe.sequential("Assembly daemon restart", () => {
       method: "POST",
       url: `/sessions/${created.sessionId}/convene`,
     });
-    const beforeRestart = await waitForCompletedSession(firstApp, created.sessionId);
+    const completed = await waitForCompletedSession(firstApp, created.sessionId);
+    const sourceFragment = completed.fragments[0];
+    expect(sourceFragment).toBeDefined();
+    await firstApp.inject({
+      method: "POST",
+      url: `/fragments/${sourceFragment!.id}/keep`,
+    });
+    const forge = await firstApp.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/forge`,
+      payload: {
+        fragmentIds: [sourceFragment!.id],
+        statement: "Revenir à une décision vivante.",
+        rationale: "La provenance doit survivre au redémarrage.",
+        objection: "Le contexte peut encore changer.",
+        reviewCondition: "Réviser après le premier essai.",
+        nextSmallStep: "Relire la décision demain.",
+      },
+    });
+    expect(forge.statusCode).toBe(200);
+    const beforeRestart = forge.json<SessionResponse>();
     await firstApp.close();
     applications.splice(applications.indexOf(firstApp), 1);
 
@@ -70,6 +90,9 @@ describe.sequential("Assembly daemon restart", () => {
       ),
     );
     expect(afterRestart.runs.every((run) => run.pid === undefined)).toBe(true);
+    expect(afterRestart.fragments).toEqual(beforeRestart.fragments);
+    expect(afterRestart.decision).toEqual(beforeRestart.decision);
+    expect(afterRestart.returnPoint).toEqual(beforeRestart.returnPoint);
     expect(afterRestart.events).toEqual(beforeRestart.events);
   });
 
@@ -118,6 +141,81 @@ describe.sequential("Assembly daemon restart", () => {
     });
     expect(retry.statusCode).toBe(202);
     await waitForCompletedSession(app, created.sessionId);
+  });
+
+  it("never persists a decision without its return point when SQLite is locked", async () => {
+    const databasePath = temporaryDatabasePath();
+    const app = trackedApp({
+      databasePath,
+      fakeModelDelayMs: 2,
+      databaseBusyTimeoutMs: 10,
+    });
+    const creation = await app.inject({
+      method: "POST",
+      url: "/sessions",
+      payload: { quest: { title: "Forger atomiquement" } },
+    });
+    const created = creation.json<{ sessionId: string }>();
+    await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/convene`,
+    });
+    const completed = await waitForCompletedSession(app, created.sessionId);
+    const fragment = completed.fragments[0];
+    expect(fragment).toBeDefined();
+    await app.inject({
+      method: "POST",
+      url: `/fragments/${fragment!.id}/keep`,
+    });
+
+    const forgePayload = {
+      fragmentIds: [fragment!.id],
+      statement: "Une paire durable.",
+      rationale: "La décision et le retour doivent rester inséparables.",
+      nextSmallStep: "Vérifier le journal.",
+    };
+    const lock = new Database(databasePath);
+    lock.exec("BEGIN EXCLUSIVE");
+    try {
+      const unavailable = await app.inject({
+        method: "POST",
+        url: `/sessions/${created.sessionId}/forge`,
+        payload: forgePayload,
+      });
+      expect(unavailable.statusCode).toBe(503);
+    } finally {
+      lock.exec("ROLLBACK");
+      lock.close();
+    }
+
+    const unchanged = await app.inject({
+      method: "GET",
+      url: `/sessions/${created.sessionId}`,
+    });
+    const snapshot = unchanged.json<SessionResponse>();
+    expect(snapshot.decision).toBeUndefined();
+    expect(snapshot.returnPoint).toBeUndefined();
+    expect(
+      snapshot.events.filter(
+        (event) =>
+          typeof event === "object" &&
+          event !== null &&
+          "type" in event &&
+          (event.type === "decision.forged" ||
+            event.type === "return_point.updated"),
+      ),
+    ).toHaveLength(0);
+
+    const retry = await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/forge`,
+      payload: forgePayload,
+    });
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json<SessionResponse>()).toMatchObject({
+      decision: { statement: forgePayload.statement },
+      returnPoint: { nextSmallStep: forgePayload.nextSmallStep },
+    });
   });
 
   it("persists controlled interruptions when the daemon stops mid-session", async () => {
@@ -219,6 +317,34 @@ interface SessionResponse {
     pid?: number;
     error?: Readonly<{ code: string; message: string }>;
   }>[];
+  readonly fragments: readonly Readonly<{
+    id: string;
+    sessionId: string;
+    contributionId: string;
+    runId: string;
+    content: string;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+  }>[];
+  readonly decision?: Readonly<{
+    id: string;
+    sessionId: string;
+    statement: string;
+    rationale: string;
+    objection?: string;
+    reviewCondition?: string;
+    sources: readonly unknown[];
+    createdAt: string;
+  }>;
+  readonly returnPoint?: Readonly<{
+    sessionId: string;
+    decisionId: string;
+    summary: string;
+    openObjection?: string;
+    nextSmallStep: string;
+    updatedAt: string;
+  }>;
   readonly events: readonly unknown[];
 }
 

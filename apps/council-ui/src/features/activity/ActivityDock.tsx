@@ -1,7 +1,6 @@
 import type { CouncilSessionSnapshot } from '../../api/assembly';
 import type { AssemblyHealthQuery } from '../../queries/useAssemblyHealth';
 import type { CouncilSignalStatus } from '../../queries/useCouncilEventStream';
-import { useCouncilUiStore } from '../../state/council-ui-store';
 
 type ActivityDockProps = {
   health: AssemblyHealthQuery;
@@ -14,13 +13,6 @@ export function ActivityDock({
   session,
   signalStatus,
 }: ActivityDockProps) {
-  const followsLiveActivity = useCouncilUiStore(
-    (state) => state.followsLiveActivity,
-  );
-  const toggleLiveActivity = useCouncilUiStore(
-    (state) => state.toggleLiveActivity,
-  );
-
   const latestEvent = session?.events.at(-1);
   const message = getSignalMessage(signalStatus, latestEvent?.type, health);
 
@@ -34,15 +26,6 @@ export function ActivityDock({
         <span>Activité en direct</span>
       </div>
       <p aria-live="polite">{message}</p>
-      <label className="follow-control">
-        <span>Défilement auto</span>
-        <input
-          type="checkbox"
-          checked={followsLiveActivity}
-          onChange={toggleLiveActivity}
-        />
-        <span className="toggle" aria-hidden="true" />
-      </label>
     </aside>
   );
 }

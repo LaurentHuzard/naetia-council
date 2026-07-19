@@ -3,6 +3,15 @@ import { z } from "zod";
 const identifierSchema = z.string().trim().min(1);
 const timestampSchema = z.string().datetime({ offset: true });
 const nonEmptyTextSchema = z.string().trim().min(1);
+const boundedOptionalTextSchema = (maximum: number) =>
+  z.string().trim().min(1).max(maximum).optional();
+const uniqueIdentifierListSchema = z
+  .array(identifierSchema)
+  .min(1)
+  .max(20)
+  .refine((identifiers) => new Set(identifiers).size === identifiers.length, {
+    message: "Identifiers must be unique",
+  });
 
 export const agentRoleSchema = z.enum(["architect", "trickster", "guardian"]);
 export const agentRunStatusSchema = z.enum([
@@ -126,11 +135,11 @@ export const decisionSchema = z
   .object({
     id: identifierSchema,
     sessionId: identifierSchema,
-    statement: nonEmptyTextSchema,
-    rationale: nonEmptyTextSchema,
-    objection: z.string().optional(),
-    reviewCondition: z.string().optional(),
-    sources: z.array(decisionSourceSchema),
+    statement: z.string().trim().min(1).max(500),
+    rationale: z.string().trim().min(1).max(5_000),
+    objection: boundedOptionalTextSchema(5_000),
+    reviewCondition: boundedOptionalTextSchema(2_000),
+    sources: z.array(decisionSourceSchema).min(1).max(20),
     createdAt: timestampSchema,
   })
   .strict();
@@ -138,10 +147,10 @@ export const decisionSchema = z
 export const returnPointSchema = z
   .object({
     sessionId: identifierSchema,
-    decisionId: identifierSchema.optional(),
+    decisionId: identifierSchema,
     summary: nonEmptyTextSchema,
-    openObjection: z.string().optional(),
-    nextSmallStep: z.string().optional(),
+    openObjection: boundedOptionalTextSchema(5_000),
+    nextSmallStep: z.string().trim().min(1).max(1_000),
     updatedAt: timestampSchema,
   })
   .strict();
@@ -343,7 +352,7 @@ export const assemblyCommandSchema = z.discriminatedUnion("type", [
       type: z.literal("fragment.challenge"),
       sessionId: identifierSchema,
       fragmentId: identifierSchema,
-      prompt: z.string().optional(),
+      prompt: boundedOptionalTextSchema(2_000),
     })
     .strict(),
   z
@@ -351,11 +360,12 @@ export const assemblyCommandSchema = z.discriminatedUnion("type", [
       ...commandEnvelopeShape,
       type: z.literal("decision.forge"),
       sessionId: identifierSchema,
-      fragmentIds: z.array(identifierSchema).min(1),
-      statement: nonEmptyTextSchema,
-      rationale: nonEmptyTextSchema,
-      objection: z.string().optional(),
-      reviewCondition: z.string().optional(),
+      fragmentIds: uniqueIdentifierListSchema,
+      statement: z.string().trim().min(1).max(500),
+      rationale: z.string().trim().min(1).max(5_000),
+      objection: boundedOptionalTextSchema(5_000),
+      reviewCondition: boundedOptionalTextSchema(2_000),
+      nextSmallStep: z.string().trim().min(1).max(1_000),
     })
     .strict(),
 ]);

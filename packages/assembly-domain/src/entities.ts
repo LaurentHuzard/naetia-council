@@ -30,6 +30,22 @@ export type ContributionStatus = (typeof CONTRIBUTION_STATUSES)[number];
 export const FRAGMENT_STATUSES = ["available", "kept", "challenged", "composted"] as const;
 export type FragmentStatus = (typeof FRAGMENT_STATUSES)[number];
 
+export const FRAGMENT_STATUS_TRANSITIONS = {
+  available: ["kept", "challenged", "composted"],
+  kept: ["challenged", "composted"],
+  challenged: ["kept", "composted"],
+  composted: [],
+} as const satisfies Readonly<Record<FragmentStatus, readonly FragmentStatus[]>>;
+
+export function canTransitionFragmentStatus(
+  current: FragmentStatus,
+  next: FragmentStatus,
+): boolean {
+  return (FRAGMENT_STATUS_TRANSITIONS[current] as readonly FragmentStatus[]).includes(
+    next,
+  );
+}
+
 export interface Quest {
   readonly id: QuestId;
   readonly title: string;

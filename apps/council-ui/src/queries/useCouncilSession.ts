@@ -6,22 +6,21 @@ import {
 } from '@tanstack/react-query';
 
 import {
+  actOnFragment,
   cancelAgentRun,
   conveneCouncilSession,
   createCouncilSession,
   fetchCouncilSession,
+  forgeCouncilDecision,
   type AgentRunSnapshot,
   type CouncilSessionSnapshot,
+  type CreateCouncilSessionInput,
+  type ForgeCouncilDecisionInput,
+  type FragmentActionInput,
 } from '../api/assembly';
 import { useCouncilUiStore } from '../state/council-ui-store';
 import { councilSessionKey } from './council-session-key';
 import { useCouncilEventStream } from './useCouncilEventStream';
-
-const quest = {
-  title: 'Ouvrir la porte du royaume',
-  context:
-    'Le royaume est scellé. Trouver et ouvrir la porte sans déclencher les anciens verrous ni trahir les pactes en vigueur.',
-} as const;
 
 function isRunActive(run: AgentRunSnapshot) {
   return (
@@ -36,6 +35,9 @@ export function useCouncilSession() {
   const activeSessionId = useCouncilUiStore((state) => state.activeSessionId);
   const setActiveSessionId = useCouncilUiStore(
     (state) => state.setActiveSessionId,
+  );
+  const clearActiveSessionId = useCouncilUiStore(
+    (state) => state.clearActiveSessionId,
   );
   const queryClient = useQueryClient();
 
@@ -58,7 +60,7 @@ export function useCouncilSession() {
   });
 
   const conveneMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (quest: CreateCouncilSessionInput) => {
       const created = await createCouncilSession(quest);
       setActiveSessionId(created.sessionId);
       queryClient.setQueryData(councilSessionKey(created.sessionId), created);
@@ -82,6 +84,25 @@ export function useCouncilSession() {
     },
   });
 
+  const fragmentMutation = useMutation({
+    mutationFn: (input: FragmentActionInput) => actOnFragment(input),
+    onSuccess: (snapshot) => {
+      setFreshestSnapshot(queryClient, snapshot);
+    },
+  });
+
+  const forgeMutation = useMutation({
+    mutationFn: (input: ForgeCouncilDecisionInput) => {
+      if (activeSessionId === null) {
+        throw new Error('Aucune session active à forger.');
+      }
+      return forgeCouncilDecision(activeSessionId, input);
+    },
+    onSuccess: (snapshot) => {
+      setFreshestSnapshot(queryClient, snapshot);
+    },
+  });
+
   return {
     session: sessionQuery.data ?? null,
     sessionError: sessionQuery.error,
@@ -89,8 +110,17 @@ export function useCouncilSession() {
     hasActiveRuns,
     conveneError: conveneMutation.error,
     convene: conveneMutation.mutate,
+    newQuest: clearActiveSessionId,
     cancelRun: cancelMutation.mutate,
     cancelError: cancelMutation.error,
+    actOnFragment: fragmentMutation.mutate,
+    fragmentError: fragmentMutation.error,
+    actingFragmentId: fragmentMutation.isPending
+      ? (fragmentMutation.variables?.fragmentId ?? null)
+      : null,
+    forgeDecision: forgeMutation.mutate,
+    forgeError: forgeMutation.error,
+    isForging: forgeMutation.isPending,
     signalStatus: signal.status,
     signalError: signal.error,
     cancellingRunId: cancelMutation.isPending

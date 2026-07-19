@@ -1,5 +1,8 @@
 import type { AssemblyHealthQuery } from '../../queries/useAssemblyHealth';
 import type { CouncilSessionController } from '../../queries/useCouncilSession';
+import { ForgePanel } from '../forge/ForgePanel';
+import { LootPanel } from '../loot/LootPanel';
+import { ReturnPanel } from '../return/ReturnPanel';
 import { AgentCard } from './AgentCard';
 import { firstCouncilAgents } from './agent-definitions';
 import { QuestPanel } from './QuestPanel';
@@ -15,21 +18,46 @@ export function CouncilBoard({ health, councilSession }: CouncilBoardProps) {
       <QuestPanel health={health} councilSession={councilSession} />
       <section className="council-grid" aria-label="Membres du Council">
         {firstCouncilAgents.map((agent) => (
-          <AgentCard
+          <AgentCardSlot
             key={agent.id}
             agent={agent}
-            run={councilSession.session?.runs.find(
-              (run) => run.agentId === agent.id,
-            )}
-            cancelling={
-              councilSession.cancellingRunId ===
-              councilSession.session?.runs.find((run) => run.agentId === agent.id)
-                ?.runId
-            }
-            onCancel={councilSession.cancelRun}
+            councilSession={councilSession}
           />
         ))}
       </section>
+      <LootPanel
+        session={councilSession.session}
+        actingFragmentId={councilSession.actingFragmentId}
+        error={councilSession.fragmentError}
+        onAction={councilSession.actOnFragment}
+      />
+      <ForgePanel
+        session={councilSession.session}
+        isForging={councilSession.isForging}
+        error={councilSession.forgeError}
+        onForge={councilSession.forgeDecision}
+      />
+      <ReturnPanel session={councilSession.session} />
     </div>
+  );
+}
+
+function AgentCardSlot({
+  agent,
+  councilSession,
+}: Readonly<{
+  agent: (typeof firstCouncilAgents)[number];
+  councilSession: CouncilSessionController;
+}>) {
+  const run = councilSession.session?.runs.find(
+    (candidate) => candidate.agentId === agent.id,
+  );
+  return (
+    <AgentCard
+      agent={agent}
+      run={run}
+      cancelling={councilSession.cancellingRunId === run?.runId}
+      onCancel={councilSession.cancelRun}
+    />
   );
 }

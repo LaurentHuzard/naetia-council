@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_ROLES,
   AGENT_RUN_STATUSES,
+  canTransitionFragmentStatus,
+  FRAGMENT_STATUS_TRANSITIONS,
   RUN_EVENT_TYPES,
   type CouncilEvent,
 } from "../src/index.js";
@@ -29,5 +31,17 @@ describe("assembly domain vocabulary", () => {
 
     expect(RUN_EVENT_TYPES).toContain(event.type);
     expect("runId" in event && event.runId).toBe("run-1");
+  });
+
+  it("keeps fragment disposition under explicit human transitions", () => {
+    expect(FRAGMENT_STATUS_TRANSITIONS.available).toEqual([
+      "kept",
+      "challenged",
+      "composted",
+    ]);
+    expect(canTransitionFragmentStatus("challenged", "kept")).toBe(true);
+    expect(canTransitionFragmentStatus("kept", "composted")).toBe(true);
+    expect(canTransitionFragmentStatus("composted", "kept")).toBe(false);
+    expect(canTransitionFragmentStatus("kept", "kept")).toBe(false);
   });
 });

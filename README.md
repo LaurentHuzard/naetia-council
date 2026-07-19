@@ -6,7 +6,7 @@ Naetia Council transforme une quête confuse en décision navigable grâce à pl
 
 ## Première porte
 
-Cette première expédition couvre les Orbites 0 à 4 :
+Cette première expédition couvre les Orbites 0 à 5 :
 
 - un workspace pnpm TypeScript strict ;
 - une interface React/Vite qui vérifie la disponibilité de The Assembly ;
@@ -17,9 +17,13 @@ Cette première expédition couvre les Orbites 0 à 4 :
 - un mode Codex CLI optionnel qui lance un appel réel indépendant par run ;
 - un journal SQLite append-only qui reconstruit les sessions après redémarrage ;
 - un flux SSE rejouable par séquence avec reconnexion native du navigateur ;
-- une interface qui recharge un snapshot autoritaire et déduplique les signaux.
+- une interface qui recharge un snapshot autoritaire et déduplique les signaux ;
+- un fragment durable par contribution terminée ;
+- les dispositions humaines KEEP, CHALLENGE et COMPOST ;
+- une Forge qui accepte uniquement des fragments conservés et calcule leur provenance côté serveur ;
+- un Return Point qui réunit décision, objection ouverte, condition de révision et prochain petit geste.
 
-Les fragments, la Forge et le Return Point ne sont pas encore livrés.
+Le parcours local Quest → Assembly → Loot → Forge → Return fonctionne avec le faux modèle déterministe comme avec Codex CLI.
 
 ## Architecture locale
 
@@ -53,6 +57,17 @@ pnpm dev
 
 L’interface est servie par Vite sur `http://127.0.0.1:5173` et relaie `/api` vers The Assembly sur `http://127.0.0.1:4317`.
 
+## Parcours local
+
+1. Décrivez une quête, puis convoquez le Council.
+2. Attendez les contributions séparées d’Architect, Trickster et Guardian.
+3. Classez chaque fragment avec KEEP, CHALLENGE ou COMPOST.
+4. Sélectionnez au moins un fragment conservé dans la Forge.
+5. Écrivez la décision, sa raison, l’objection à garder, la condition de révision et le prochain petit geste.
+6. Forge affiche le Return Point et verrouille la provenance de cette première décision.
+
+CHALLENGE conserve l’objection humaine dans le journal, mais ne relance pas encore l’agent. Une session accepte actuellement une seule décision forgée ; ses sources deviennent immuables après la Forge.
+
 ## Commandes
 
 ```bash
@@ -83,15 +98,17 @@ Chaque carte correspond alors à un processus agent et à une invocation `codex 
 
 L’interface conserve uniquement l’identifiant de session dans un stockage local versionné. Le journal du daemon demeure la source de vérité : un rafraîchissement ou un redémarrage reconstruit la même session sans relancer les agents. Après le snapshot, `EventSource` écoute les nouveautés ; la séquence SQLite sert de curseur et `Last-Event-ID` permet le rattrapage automatique.
 
+Une contribution terminée et son fragment sont écrits dans la même transaction. KEEP, CHALLENGE et COMPOST sont idempotents lorsque la même commande est rejouée. La Forge refuse les fragments non conservés, dérive la provenance depuis les runs et écrit atomiquement `decision.forged` avec `return_point.updated`. Les anciens journaux contenant des contributions terminées sont complétés avec leurs fragments lors de la reconstruction, sans doublon au redémarrage suivant.
+
 SQLite utilise par défaut `data/naetia-council.sqlite`. Le fichier est créé au premier démarrage et ignoré par Git. Un verrou de propriété empêche deux daemons vivants d’écrire dans le même journal. Chaque événement est validé par Zod avant écriture et après lecture ; son identifiant est unique et l’ordre durable vient de la séquence SQLite. Les identifiants Codex restent exclusivement dans `CODEX_HOME`, côté daemon. `.env.example` ne contient aucun secret.
 
 ## Limites actuelles
 
-- les fragments, la Forge et le Return Point restent à construire ;
-- l’interface montre la première Assembly, pas encore le parcours complet Port → Return ;
+- l’interface ouvre directement la quête active ; le Port et la liste des sessions récentes restent à construire ;
+- CHALLENGE classe durablement un fragment mais ne convoque pas encore une réponse contradictoire ;
+- une décision forgée est immuable et unique dans la session ; un cycle explicite de révision reste à concevoir ;
 - le streaming Codex est une révélation locale post-réponse, pas encore un streaming natif token par token ;
 - le mode Codex consomme des tokens et dépend de la disponibilité du CLI et de sa session locale ; le faux modèle reste le mode par défaut des tests ;
-- le contrat HTTP de snapshot reste validé séparément dans l’UI ; seul le contrat événementiel traverse actuellement `assembly-protocol` ;
 - chaque rafale SSE provoque encore une relecture coalescée du snapshot complet ;
 - un run interrompu par un arrêt brutal est marqué `DAEMON_RESTARTED` et n’est jamais relancé automatiquement ;
 - une panne d’écriture SQLite pendant un streaming place le daemon en état dégradé `503` jusqu’à son redémarrage ;

@@ -1,6 +1,12 @@
 import {
   councilEventSchema,
+  decisionSchema,
+  fragmentSchema,
+  returnPointSchema,
   type CouncilEventMessage,
+  type DecisionMessage,
+  type FragmentMessage,
+  type ReturnPointMessage,
 } from '@naetia/assembly-protocol';
 
 export type AssemblyHealth = {
@@ -44,12 +50,30 @@ export type CouncilSessionSnapshot = {
   createdAt: string;
   eventCursor: number;
   runs: AgentRunSnapshot[];
+  fragments: FragmentMessage[];
+  decision?: DecisionMessage;
+  returnPoint?: ReturnPointMessage;
   events: CouncilEventMessage[];
 };
 
 export type CreateCouncilSessionInput = {
   title: string;
   context?: string;
+};
+
+export type FragmentActionInput = {
+  fragmentId: string;
+  action: 'keep' | 'challenge' | 'compost';
+  prompt?: string;
+};
+
+export type ForgeCouncilDecisionInput = {
+  fragmentIds: string[];
+  statement: string;
+  rationale: string;
+  objection?: string;
+  reviewCondition?: string;
+  nextSmallStep: string;
 };
 
 const agentRunStatuses: readonly string[] = [
@@ -139,6 +163,40 @@ export async function cancelAgentRun(
   return payload.run;
 }
 
+export async function actOnFragment({
+  fragmentId,
+  action,
+  prompt,
+}: FragmentActionInput): Promise<CouncilSessionSnapshot> {
+  return parseSessionSnapshot(
+    await requestJson(
+      `/api/fragments/${encodeURIComponent(fragmentId)}/${action}`,
+      {
+        method: 'POST',
+        ...(action !== 'challenge'
+          ? {}
+          : {
+              body: JSON.stringify(
+                prompt === undefined ? {} : { prompt },
+              ),
+            }),
+      },
+    ),
+  );
+}
+
+export async function forgeCouncilDecision(
+  sessionId: string,
+  input: ForgeCouncilDecisionInput,
+): Promise<CouncilSessionSnapshot> {
+  return parseSessionSnapshot(
+    await requestJson(`/api/sessions/${encodeURIComponent(sessionId)}/forge`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  );
+}
+
 async function requestJson(
   path: string,
   init: RequestInit = {},
@@ -152,7 +210,11 @@ async function requestJson(
   });
 
   if (!response.ok) {
-    throw new Error(`The Assembly a répondu avec le statut ${response.status}.`);
+    const errorPayload = await readErrorPayload(response);
+    throw new Error(
+      errorPayload ??
+        `The Assembly a répondu avec le statut ${response.status}.`,
+    );
   }
 
   return response.json() as Promise<unknown>;
@@ -176,6 +238,17 @@ function parseSessionSnapshot(value: unknown): CouncilSessionSnapshot {
   const validEvents =
     Array.isArray(value.events) &&
     value.events.every((event) => councilEventSchema.safeParse(event).success);
+  const validFragments =
+    Array.isArray(value.fragments) &&
+    value.fragments.every((fragment) => fragmentSchema.safeParse(fragment).success);
+  const validDecision =
+    value.decision === undefined || decisionSchema.safeParse(value.decision).success;
+  const validReturnPoint =
+    value.returnPoint === undefined ||
+    returnPointSchema.safeParse(value.returnPoint).success;
+  const validOutcomePair =
+    (value.decision === undefined && value.returnPoint === undefined) ||
+    (value.decision !== undefined && value.returnPoint !== undefined);
 
   if (
     typeof value.sessionId !== 'string' ||
@@ -183,6 +256,10 @@ function parseSessionSnapshot(value: unknown): CouncilSessionSnapshot {
     typeof value.createdAt !== 'string' ||
     !validQuest ||
     !validRuns ||
+    !validFragments ||
+    !validDecision ||
+    !validReturnPoint ||
+    !validOutcomePair ||
     !Number.isInteger(value.eventCursor) ||
     (value.eventCursor as number) < 0 ||
     !validEvents
@@ -192,6 +269,15 @@ function parseSessionSnapshot(value: unknown): CouncilSessionSnapshot {
 
   return {
     ...(value as CouncilSessionSnapshot),
+    fragments: (value.fragments as unknown[]).map((fragment) =>
+      fragmentSchema.parse(fragment),
+    ),
+    ...(value.decision === undefined
+      ? {}
+      : { decision: decisionSchema.parse(value.decision) }),
+    ...(value.returnPoint === undefined
+      ? {}
+      : { returnPoint: returnPointSchema.parse(value.returnPoint) }),
     events: (value.events as unknown[]).map((event) =>
       councilEventSchema.parse(event),
     ),
@@ -219,4 +305,15 @@ function isAgentRunSnapshot(value: unknown): value is AgentRunSnapshot {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+async function readErrorPayload(response: Response): Promise<string | undefined> {
+  try {
+    const payload: unknown = await response.json();
+    return isRecord(payload) && typeof payload.message === 'string'
+      ? payload.message
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
