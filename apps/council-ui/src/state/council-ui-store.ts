@@ -4,20 +4,20 @@ const ACTIVE_SESSION_STORAGE_KEY = 'naetia-council-ui';
 
 type CouncilUiState = {
   activeSessionId: string | null;
-  followsLiveActivity: boolean;
   setActiveSessionId: (sessionId: string) => void;
-  toggleLiveActivity: () => void;
+  clearActiveSessionId: () => void;
 };
 
 export const useCouncilUiStore = create<CouncilUiState>((set) => ({
   activeSessionId: readActiveSessionId(),
-  followsLiveActivity: true,
   setActiveSessionId: (activeSessionId) => {
     rememberActiveSessionId(activeSessionId);
     set({ activeSessionId });
   },
-  toggleLiveActivity: () =>
-    set((state) => ({ followsLiveActivity: !state.followsLiveActivity })),
+  clearActiveSessionId: () => {
+    forgetActiveSessionId();
+    set({ activeSessionId: null });
+  },
 }));
 
 function readActiveSessionId(): string | null {
@@ -57,5 +57,16 @@ function rememberActiveSessionId(activeSessionId: string): void {
     );
   } catch {
     // The server snapshot stays authoritative when browser storage is unavailable.
+  }
+}
+
+function forgetActiveSessionId(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+  } catch {
+    // A fresh in-memory quest remains possible without browser storage.
   }
 }

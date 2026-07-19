@@ -41,7 +41,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -51,7 +52,8 @@ button {
 
 button:focus-visible,
 a:focus-visible,
-input:focus-visible + .toggle {
+input:focus-visible,
+textarea:focus-visible {
   outline: 3px solid rgba(22, 92, 151, 0.32);
   outline-offset: 3px;
 }
@@ -183,6 +185,61 @@ input:focus-visible + .toggle {
   line-height: 1.6;
 }
 
+.quest-form {
+  max-width: 1080px;
+  margin-top: 22px;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr);
+  align-items: end;
+  gap: 16px 20px;
+}
+
+.quest-form label,
+.forge-fields label {
+  display: grid;
+  gap: 8px;
+  color: #303a52;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.quest-form input,
+.quest-form textarea,
+.forge-fields input,
+.forge-fields textarea {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 0.98rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.5;
+  text-transform: none;
+}
+
+.quest-form input,
+.forge-fields input {
+  min-height: 46px;
+  padding: 10px 12px;
+}
+
+.quest-form textarea,
+.forge-fields textarea {
+  min-height: 92px;
+  padding: 11px 12px;
+  resize: vertical;
+}
+
+.quest-form input:disabled,
+.quest-form textarea:disabled {
+  background: #f7f8fa;
+  color: #596174;
+}
+
 .primary-button {
   min-height: 50px;
   margin-top: 25px;
@@ -200,6 +257,12 @@ input:focus-visible + .toggle {
   transition:
     transform 140ms ease,
     box-shadow 140ms ease;
+}
+
+.quest-form .primary-button {
+  width: max-content;
+  margin-top: 0;
+  grid-column: 1 / -1;
 }
 
 .primary-button:hover:not(:disabled) {
@@ -435,12 +498,358 @@ input:focus-visible + .toggle {
   opacity: 0.47;
 }
 
+.journey-panel {
+  margin-top: 24px;
+  padding: 30px 32px 32px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 1px 3px rgba(17, 29, 58, 0.035);
+}
+
+.journey-heading {
+  margin: 18px 0 22px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.journey-heading h2,
+.return-decision h2 {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: clamp(1.9rem, 3vw, 2.65rem);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+}
+
+.journey-heading p {
+  max-width: 820px;
+  margin: 9px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.journey-count {
+  flex: 0 0 auto;
+  color: #71798b;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.loot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.loot-card {
+  --loot-accent: var(--blue);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--loot-accent) 24%, var(--line));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--loot-accent) 2%, #ffffff);
+}
+
+.loot-card--violet {
+  --loot-accent: var(--violet);
+}
+
+.loot-card--teal {
+  --loot-accent: var(--teal);
+}
+
+.loot-card--composted {
+  filter: grayscale(0.8);
+  opacity: 0.66;
+}
+
+.loot-card header {
+  padding: 15px 17px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.loot-agent {
+  color: var(--loot-accent);
+  font-family: var(--serif);
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.loot-status {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #eef1f5;
+  color: #60697b;
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.loot-status--kept {
+  background: #e3f4e9;
+  color: #12683a;
+}
+
+.loot-status--challenged {
+  background: #fff0d7;
+  color: #8c5508;
+}
+
+.loot-copy {
+  max-height: 280px;
+  flex: 1;
+  margin: 0;
+  padding: 18px;
+  overflow: auto;
+  color: #2d374f;
+  font-family: var(--serif);
+  font-size: 0.96rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.loot-actions {
+  padding: 12px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  border-top: 1px solid var(--line);
+}
+
+.loot-action {
+  min-height: 34px;
+  border: 1px solid #b7bdc8;
+  border-radius: 4px;
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.loot-action:hover:not(:disabled) {
+  border-color: var(--loot-accent);
+  color: var(--loot-accent);
+}
+
+.loot-action--active {
+  border-color: var(--loot-accent);
+  background: color-mix(in srgb, var(--loot-accent) 9%, #ffffff);
+  color: var(--loot-accent);
+}
+
+.loot-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.panel-note,
+.panel-error {
+  margin: 18px 0 0;
+  font-size: 0.88rem;
+}
+
+.panel-note {
+  color: #656d7e;
+}
+
+.panel-error {
+  color: #9f343f;
+}
+
+.forge-empty {
+  padding: 28px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  color: #677083;
+  text-align: center;
+}
+
+.forge-form {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.7fr) minmax(420px, 1.3fr);
+  gap: 24px;
+}
+
+.forge-sources {
+  min-width: 0;
+  margin: 0;
+  padding: 18px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+}
+
+.forge-sources legend {
+  padding: 0 7px;
+  color: #34405a;
+  font-size: 0.82rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.forge-sources label {
+  padding: 12px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 10px;
+  border: 1px solid #e0e3e9;
+  border-radius: 5px;
+  color: #566075;
+  cursor: pointer;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.forge-sources label:has(input:checked) {
+  border-color: var(--teal);
+  background: #f1f9f7;
+}
+
+.forge-sources strong {
+  display: block;
+  color: var(--ink);
+}
+
+.forge-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.forge-next-step {
+  grid-column: 1 / -1;
+}
+
+.forge-submit {
+  width: max-content;
+  margin: 0;
+  grid-column: 1 / -1;
+}
+
+.return-panel {
+  border-top: 4px solid var(--teal);
+  background:
+    linear-gradient(135deg, rgba(8, 122, 120, 0.045), transparent 48%),
+    #ffffff;
+}
+
+.return-layout {
+  margin-top: 22px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: 34px;
+}
+
+.return-eyebrow {
+  margin: 0 0 9px;
+  color: var(--teal);
+  font-size: 0.8rem;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.return-decision > p:last-child {
+  color: #4c5569;
+  line-height: 1.65;
+}
+
+.return-details {
+  margin: 0;
+  display: grid;
+  gap: 13px;
+}
+
+.return-details > div {
+  padding: 14px 16px;
+  border-left: 3px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.return-details dt,
+.return-provenance h3 {
+  color: #687083;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.return-details dd {
+  margin: 5px 0 0;
+  color: #273149;
+  line-height: 1.45;
+}
+
+.return-details .return-next-step {
+  border-left-color: var(--amber);
+  background: #fff9ed;
+}
+
+.return-provenance {
+  margin-top: 26px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.return-provenance h3 {
+  margin: 0;
+}
+
+.return-provenance ul {
+  margin: 12px 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+}
+
+.return-provenance li {
+  padding: 7px 10px;
+  display: flex;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: #697185;
+  font-size: 0.78rem;
+}
+
+.return-provenance li strong {
+  color: var(--ink);
+}
+
+.return-provenance > p {
+  margin: 0;
+  color: #747b8a;
+  font-size: 0.78rem;
+}
+
 .activity-dock {
   min-height: 66px;
   margin-top: 24px;
   padding: 13px 20px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 28px;
   border: 1px solid var(--line);
@@ -465,53 +874,6 @@ input:focus-visible + .toggle {
   font-size: 0.86rem;
 }
 
-.follow-control {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  color: #656c7b;
-  cursor: pointer;
-  font-size: 0.8rem;
-}
-
-.follow-control input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
-.toggle {
-  width: 42px;
-  height: 24px;
-  padding: 3px;
-  border-radius: 999px;
-  background: #a8adb7;
-  transition: background 160ms ease;
-}
-
-.toggle::after {
-  width: 18px;
-  height: 18px;
-  display: block;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgba(17, 29, 58, 0.24);
-  content: "";
-  transition: transform 160ms ease;
-}
-
-.follow-control input:checked + .toggle {
-  background: var(--teal);
-}
-
-.follow-control input:checked + .toggle::after {
-  transform: translateX(18px);
-}
-
 @keyframes pulse {
   50% {
     opacity: 0.4;
@@ -531,6 +893,19 @@ input:focus-visible + .toggle {
 
   .agent-card:last-child {
     grid-column: 1 / -1;
+  }
+
+  .loot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .loot-card:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .forge-form,
+  .return-layout {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -562,6 +937,11 @@ input:focus-visible + .toggle {
     font-size: clamp(2.15rem, 10vw, 3rem);
   }
 
+  .quest-form,
+  .forge-fields {
+    grid-template-columns: 1fr;
+  }
+
   .primary-button {
     width: 100%;
   }
@@ -582,6 +962,35 @@ input:focus-visible + .toggle {
     min-height: 490px;
   }
 
+  .journey-panel {
+    padding: 24px 20px;
+  }
+
+  .journey-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .loot-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .loot-card:last-child {
+    grid-column: auto;
+  }
+
+  .loot-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .forge-next-step {
+    grid-column: auto;
+  }
+
+  .forge-submit {
+    width: 100%;
+  }
+
   .agent-heading,
   .agent-section,
   .agent-footer {
@@ -599,9 +1008,6 @@ input:focus-visible + .toggle {
     gap: 10px;
   }
 
-  .follow-control {
-    justify-self: start;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

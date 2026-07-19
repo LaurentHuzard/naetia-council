@@ -62,6 +62,80 @@ describe("assembly commands", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it("accepts a forge command with an explicit return point", () => {
+    const command = assemblyCommandSchema.parse({
+      commandId: "command-forge-1",
+      type: "decision.forge",
+      sessionId: "session-1",
+      fragmentIds: ["fragment-architect", "fragment-trickster"],
+      statement: "Ouvrir une porte réversible.",
+      rationale: "Deux perspectives conservées soutiennent ce test.",
+      objection: "La surcharge reste possible.",
+      reviewCondition: "Réviser si la confusion augmente.",
+      nextSmallStep: "Tester pendant dix minutes.",
+    });
+
+    expect(command.type).toBe("decision.forge");
+  });
+
+  it("rejects duplicate forge sources and a missing next step", () => {
+    const duplicateSources = assemblyCommandSchema.safeParse({
+      commandId: "command-forge-2",
+      type: "decision.forge",
+      sessionId: "session-1",
+      fragmentIds: ["fragment-1", "fragment-1"],
+      statement: "Décider.",
+      rationale: "Une raison.",
+      nextSmallStep: "Agir.",
+    });
+    const missingNextStep = assemblyCommandSchema.safeParse({
+      commandId: "command-forge-3",
+      type: "decision.forge",
+      sessionId: "session-1",
+      fragmentIds: ["fragment-1"],
+      statement: "Décider.",
+      rationale: "Une raison.",
+    });
+
+    expect(duplicateSources.success).toBe(false);
+    expect(missingNextStep.success).toBe(false);
+  });
+
+  it("rejects whitespace-only optional human input", () => {
+    const result = assemblyCommandSchema.safeParse({
+      commandId: "command-challenge-1",
+      type: "fragment.challenge",
+      sessionId: "session-1",
+      fragmentId: "fragment-1",
+      prompt: "   ",
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("Council outcomes", () => {
+  it("rejects a forged decision without provenance", () => {
+    const result = councilEventSchema.safeParse({
+      id: "event-decision-1",
+      type: "decision.forged",
+      sessionId: "session-1",
+      occurredAt,
+      payload: {
+        decision: {
+          id: "decision-1",
+          sessionId: "session-1",
+          statement: "Une décision sans source.",
+          rationale: "Elle ne doit pas passer.",
+          sources: [],
+          createdAt: occurredAt,
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("agent worker IPC", () => {

@@ -1,13 +1,19 @@
 import type { ServerResponse } from "node:http";
 
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, {
+  type FastifyInstance,
+  type FastifyReply,
+} from "fastify";
 import { z } from "zod";
 
 import {
   resolveModelRuntime,
   type ModelRuntime,
 } from "../model-adapters/model-runtime.js";
-import { CouncilOrchestrator } from "../orchestration/council-orchestrator.js";
+import {
+  CouncilCommandError,
+  CouncilOrchestrator,
+} from "../orchestration/council-orchestrator.js";
 import { resolveAssemblyDatabasePath } from "../persistence/database-path.js";
 import {
   JournalError,
@@ -39,6 +45,31 @@ const idParamsSchema = z.object({
 const runIdParamsSchema = z.object({
   runId: z.string().uuid(),
 });
+
+const fragmentIdParamsSchema = z.object({
+  fragmentId: z.string().uuid(),
+});
+
+const challengeFragmentBodySchema = z
+  .object({
+    prompt: z.string().trim().min(1).max(2_000).optional(),
+  })
+  .strict();
+
+const forgeDecisionBodySchema = z
+  .object({
+    fragmentIds: z
+      .array(z.string().uuid())
+      .min(1)
+      .max(20)
+      .refine((identifiers) => new Set(identifiers).size === identifiers.length),
+    statement: z.string().trim().min(1).max(500),
+    rationale: z.string().trim().min(1).max(5_000),
+    objection: z.string().trim().min(1).max(5_000).optional(),
+    reviewCondition: z.string().trim().min(1).max(2_000).optional(),
+    nextSmallStep: z.string().trim().min(1).max(1_000),
+  })
+  .strict();
 
 const DEFAULT_FAKE_MODEL_DELAY_MS = 200;
 const SSE_HEARTBEAT_MS = 15_000;
@@ -98,6 +129,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       return reply.code(503).send({
         error: "PERSISTENCE_UNAVAILABLE",
         message: "The Assembly journal is temporarily unavailable",
+      });
+    }
+    if (error instanceof CouncilCommandError) {
+      return reply.code(409).send({
+        error: error.code,
+        message: error.message,
       });
     }
     return reply.send(error);
@@ -285,6 +322,79 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     return reply.code(202).send({ run });
   });
 
+  app.post("/fragments/:fragmentId/keep", async (request, reply) => {
+    const params = fragmentIdParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return invalidFragmentId(reply);
+    }
+    const session = orchestrator.keepFragment(params.data.fragmentId);
+    if (session === undefined) {
+      return fragmentNotFound(reply);
+    }
+    return session;
+  });
+
+  app.post("/fragments/:fragmentId/challenge", async (request, reply) => {
+    const params = fragmentIdParamsSchema.safeParse(request.params);
+    const body = challengeFragmentBodySchema.safeParse(request.body ?? {});
+    if (!params.success || !body.success) {
+      return reply.code(400).send({
+        error: "INVALID_REQUEST",
+        message: "A valid fragment id and challenge are required",
+      });
+    }
+    const session = orchestrator.challengeFragment(
+      params.data.fragmentId,
+      body.data.prompt,
+    );
+    if (session === undefined) {
+      return fragmentNotFound(reply);
+    }
+    return session;
+  });
+
+  app.post("/fragments/:fragmentId/compost", async (request, reply) => {
+    const params = fragmentIdParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return invalidFragmentId(reply);
+    }
+    const session = orchestrator.compostFragment(params.data.fragmentId);
+    if (session === undefined) {
+      return fragmentNotFound(reply);
+    }
+    return session;
+  });
+
+  app.post("/sessions/:sessionId/forge", async (request, reply) => {
+    const params = idParamsSchema.safeParse(request.params);
+    const body = forgeDecisionBodySchema.safeParse(request.body);
+    if (!params.success || !body.success) {
+      return reply.code(400).send({
+        error: "INVALID_REQUEST",
+        message: "A valid decision and at least one kept fragment are required",
+      });
+    }
+    const session = orchestrator.forgeDecision(params.data.sessionId, {
+      fragmentIds: body.data.fragmentIds,
+      statement: body.data.statement,
+      rationale: body.data.rationale,
+      ...(body.data.objection === undefined
+        ? {}
+        : { objection: body.data.objection }),
+      ...(body.data.reviewCondition === undefined
+        ? {}
+        : { reviewCondition: body.data.reviewCondition }),
+      nextSmallStep: body.data.nextSmallStep,
+    });
+    if (session === undefined) {
+      return reply.code(404).send({
+        error: "SESSION_NOT_FOUND",
+        message: "Council session not found",
+      });
+    }
+    return session;
+  });
+
   app.addHook("preClose", async () => {
     for (const response of eventStreams) {
       response.end();
@@ -308,4 +418,18 @@ function parseFakeModelDelay(value: string | undefined): number {
     throw new Error("FAKE_MODEL_DELAY_MS must be an integer from 0 to 30000");
   }
   return delay;
+}
+
+function invalidFragmentId(reply: FastifyReply) {
+  return reply.code(400).send({
+    error: "INVALID_REQUEST",
+    message: "A valid fragment id is required",
+  });
+}
+
+function fragmentNotFound(reply: FastifyReply) {
+  return reply.code(404).send({
+    error: "FRAGMENT_NOT_FOUND",
+    message: "Council fragment not found",
+  });
 }

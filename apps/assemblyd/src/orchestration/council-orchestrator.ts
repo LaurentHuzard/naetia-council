@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
-import type {
-  AgentDefinition,
-  AgentRole,
-  AgentRunStatus,
-  Quest,
+import {
+  canTransitionFragmentStatus,
+  type AgentDefinition,
+  type AgentRole,
+  type AgentRunStatus,
+  type FragmentStatus,
+  type Quest,
 } from "@naetia/assembly-domain";
 import {
   agentWorkerModelOptionsSchema,
@@ -13,7 +15,10 @@ import {
   type AgentWorkerEvent,
   type AgentWorkerModelOptions,
   type CouncilEventMessage,
+  type DecisionMessage,
+  type FragmentMessage,
   type ModelExecutionMessage,
+  type ReturnPointMessage,
 } from "@naetia/assembly-protocol";
 
 import {
@@ -86,7 +91,34 @@ export interface SessionSnapshot {
   readonly createdAt: string;
   readonly eventCursor: number;
   readonly runs: readonly RunSnapshot[];
+  readonly fragments: readonly FragmentMessage[];
+  readonly decision?: DecisionMessage;
+  readonly returnPoint?: ReturnPointMessage;
   readonly events: readonly CouncilEventMessage[];
+}
+
+export interface ForgeDecisionInput {
+  readonly fragmentIds: readonly string[];
+  readonly statement: string;
+  readonly rationale: string;
+  readonly objection?: string;
+  readonly reviewCondition?: string;
+  readonly nextSmallStep: string;
+}
+
+export type CouncilCommandErrorCode =
+  | "FRAGMENT_TRANSITION_CONFLICT"
+  | "DECISION_SOURCE_CONFLICT"
+  | "DECISION_ALREADY_FORGED";
+
+export class CouncilCommandError extends Error {
+  readonly code: CouncilCommandErrorCode;
+
+  constructor(code: CouncilCommandErrorCode, message: string) {
+    super(message);
+    this.name = "CouncilCommandError";
+    this.code = code;
+  }
 }
 
 export interface RunBehavior {
@@ -117,11 +149,17 @@ interface MutableRunProjection {
   contribution: string;
   contributionId?: string;
   contributionCreatedAt?: string;
+  contributionCompleted: boolean;
   nextDeltaIndex: number;
   startedAt?: string;
   completedAt?: string;
   error?: Readonly<{ code: string; message: string }>;
   modelExecution?: ModelExecutionMessage;
+}
+
+interface MutableFragmentProjection {
+  fragment: FragmentMessage;
+  challengePrompt?: string;
 }
 
 interface SessionRecord {
@@ -130,8 +168,11 @@ interface SessionRecord {
   readonly createdAt: string;
   readonly agentDefinitions: Map<string, AgentDefinition>;
   readonly runs: Map<string, MutableRunProjection>;
+  readonly fragments: Map<string, MutableFragmentProjection>;
   readonly events: CouncilEventMessage[];
   readonly eventIds: Set<string>;
+  decision?: DecisionMessage;
+  returnPoint?: ReturnPointMessage;
 }
 
 export class CouncilOrchestrator {
@@ -139,6 +180,7 @@ export class CouncilOrchestrator {
   readonly #journal: SqliteEventJournal;
   readonly #sessions = new Map<string, SessionRecord>();
   readonly #runToSession = new Map<string, string>();
+  readonly #fragmentToSession = new Map<string, string>();
   readonly #persistenceFailedRuns = new Set<string>();
   readonly #publishedEvents = new EventEmitter();
   readonly #model: AgentWorkerModelOptions;
@@ -157,6 +199,7 @@ export class CouncilOrchestrator {
       for (const event of this.#journal.readAll()) {
         this.#apply(event);
       }
+      this.#reconcileMissingFragments();
       for (const session of this.#sessions.values()) {
         for (const run of session.runs.values()) {
           delete run.pid;
@@ -352,11 +395,217 @@ export class CouncilOrchestrator {
     return liveRun === undefined ? undefined : runSnapshot(run);
   }
 
+  keepFragment(fragmentId: string): SessionSnapshot | undefined {
+    return this.#transitionFragment(fragmentId, "kept");
+  }
+
+  challengeFragment(
+    fragmentId: string,
+    prompt?: string,
+  ): SessionSnapshot | undefined {
+    return this.#transitionFragment(
+      fragmentId,
+      "challenged",
+      normalizeOptionalText(prompt),
+    );
+  }
+
+  compostFragment(fragmentId: string): SessionSnapshot | undefined {
+    return this.#transitionFragment(fragmentId, "composted");
+  }
+
+  forgeDecision(
+    sessionId: string,
+    input: ForgeDecisionInput,
+  ): SessionSnapshot | undefined {
+    this.#assertPersistenceAvailable();
+    const session = this.#sessions.get(sessionId);
+    if (session === undefined) {
+      return undefined;
+    }
+
+    const fragmentIds = [...input.fragmentIds];
+    if (
+      fragmentIds.length === 0 ||
+      new Set(fragmentIds).size !== fragmentIds.length
+    ) {
+      throw new CouncilCommandError(
+        "DECISION_SOURCE_CONFLICT",
+        "A decision requires distinct kept fragments",
+      );
+    }
+    const fragments = fragmentIds.map((fragmentId) => {
+      const projection = session.fragments.get(fragmentId);
+      if (projection === undefined || projection.fragment.status !== "kept") {
+        throw new CouncilCommandError(
+          "DECISION_SOURCE_CONFLICT",
+          "Every decision source must be a kept fragment from this session",
+        );
+      }
+      return projection.fragment;
+    });
+    const statement = input.statement.trim();
+    const rationale = input.rationale.trim();
+    const objection = normalizeOptionalText(input.objection);
+    const reviewCondition = normalizeOptionalText(input.reviewCondition);
+    const nextSmallStep = input.nextSmallStep.trim();
+
+    if (session.decision !== undefined) {
+      if (
+        decisionMatches(
+          session.decision,
+          session.returnPoint,
+          fragmentIds,
+          {
+            statement,
+            rationale,
+            objection,
+            reviewCondition,
+            nextSmallStep,
+          },
+        )
+      ) {
+        return this.#snapshot(session);
+      }
+      throw new CouncilCommandError(
+        "DECISION_ALREADY_FORGED",
+        "This Council session already owns a forged decision",
+      );
+    }
+
+    const occurredAt = new Date().toISOString();
+    const decisionId = randomUUID();
+    const decision = {
+      id: decisionId,
+      sessionId,
+      statement,
+      rationale,
+      ...(objection === undefined ? {} : { objection }),
+      ...(reviewCondition === undefined ? {} : { reviewCondition }),
+      sources: fragments.map((fragment) => {
+        const run = requireRun(session, fragment.runId);
+        return {
+          fragmentId: fragment.id,
+          contributionId: fragment.contributionId,
+          runId: fragment.runId,
+          agentDefinitionId: run.agentDefinitionId,
+        };
+      }),
+      createdAt: occurredAt,
+    } satisfies DecisionMessage;
+    const returnPoint = {
+      sessionId,
+      decisionId,
+      summary: statement,
+      ...(objection === undefined ? {} : { openObjection: objection }),
+      nextSmallStep,
+      updatedAt: occurredAt,
+    } satisfies ReturnPointMessage;
+    const events = [
+      parseCouncilEvent({
+        id: randomUUID(),
+        type: "decision.forged",
+        sessionId,
+        occurredAt,
+        payload: { decision },
+      }),
+      parseCouncilEvent({
+        id: randomUUID(),
+        type: "return_point.updated",
+        sessionId,
+        occurredAt,
+        payload: { returnPoint },
+      }),
+    ];
+    const inserted = this.#journal.appendMany(events);
+    for (const entry of inserted) {
+      this.#applyCommitted(entry);
+    }
+    return this.#snapshot(session);
+  }
+
   async close(): Promise<void> {
     await this.#processManager.close();
     this.#unsubscribe();
     this.#publishedEvents.removeAllListeners();
     this.#journal.close();
+  }
+
+  #transitionFragment(
+    fragmentId: string,
+    targetStatus: Extract<FragmentStatus, "kept" | "challenged" | "composted">,
+    challengePrompt?: string,
+  ): SessionSnapshot | undefined {
+    this.#assertPersistenceAvailable();
+    const sessionId = this.#fragmentToSession.get(fragmentId);
+    const session =
+      sessionId === undefined ? undefined : this.#sessions.get(sessionId);
+    const projection = session?.fragments.get(fragmentId);
+    if (session === undefined || projection === undefined) {
+      return undefined;
+    }
+    if (session.decision !== undefined) {
+      throw new CouncilCommandError(
+        "FRAGMENT_TRANSITION_CONFLICT",
+        "Fragments are locked after the decision is forged",
+      );
+    }
+
+    if (projection.fragment.status === targetStatus) {
+      if (
+        targetStatus === "challenged" &&
+        projection.challengePrompt !== challengePrompt
+      ) {
+        throw new CouncilCommandError(
+          "FRAGMENT_TRANSITION_CONFLICT",
+          "This fragment was already challenged with another prompt",
+        );
+      }
+      return this.#snapshot(session);
+    }
+
+    const currentStatus = projection.fragment.status;
+    const canTransition = canTransitionFragmentStatus(
+      currentStatus,
+      targetStatus,
+    );
+    if (!canTransition) {
+      throw new CouncilCommandError(
+        "FRAGMENT_TRANSITION_CONFLICT",
+        `Fragment ${fragmentId} cannot move from ${currentStatus} to ${targetStatus}`,
+      );
+    }
+
+    const occurredAt = new Date().toISOString();
+    const event =
+      targetStatus === "kept"
+        ? parseCouncilEvent({
+            id: randomUUID(),
+            type: "fragment.kept",
+            sessionId,
+            occurredAt,
+            payload: { fragmentId },
+          })
+        : targetStatus === "composted"
+          ? parseCouncilEvent({
+              id: randomUUID(),
+              type: "fragment.composted",
+              sessionId,
+              occurredAt,
+              payload: { fragmentId },
+            })
+          : parseCouncilEvent({
+              id: randomUUID(),
+              type: "challenge.requested",
+              sessionId,
+              occurredAt,
+              payload: {
+                fragmentId,
+                ...(challengePrompt === undefined ? {} : { prompt: challengePrompt }),
+              },
+            });
+    this.#persistAndApply(event);
+    return this.#snapshot(session);
   }
 
   assertPersistenceAvailable(): void {
@@ -394,14 +643,14 @@ export class CouncilOrchestrator {
     ) {
       return;
     }
-    const event = this.#normalizeWorkerEvent(workerEvent);
-    if (event === undefined) {
+    const events = this.#normalizeWorkerEvents(workerEvent);
+    if (events.length === 0) {
       return;
     }
 
-    let inserted: JournalEntry | undefined;
+    let inserted: readonly JournalEntry[];
     try {
-      inserted = this.#journal.append(event);
+      inserted = this.#journal.appendMany(events);
     } catch (error) {
       if (!(error instanceof JournalError)) {
         throw error;
@@ -411,46 +660,48 @@ export class CouncilOrchestrator {
       this.#processManager.cancel(workerEvent.runId);
       return;
     }
-    if (inserted !== undefined) {
-      this.#applyCommitted(inserted);
+    for (const entry of inserted) {
+      this.#applyCommitted(entry);
     }
   }
 
-  #normalizeWorkerEvent(workerEvent: AgentWorkerEvent): CouncilEventMessage | undefined {
+  #normalizeWorkerEvents(
+    workerEvent: AgentWorkerEvent,
+  ): readonly CouncilEventMessage[] {
     const session = this.#sessions.get(workerEvent.sessionId);
     const run = session?.runs.get(workerEvent.runId);
     if (session === undefined || run === undefined) {
-      return undefined;
+      return [];
     }
 
     if (workerEvent.type === "status") {
       if (workerEvent.status === "starting") {
-        return undefined;
+        return [];
       }
       if (workerEvent.status === "completed") {
-        return parseCouncilEvent({
+        return [parseCouncilEvent({
           id: workerEvent.eventId,
           type: "agent_run.completed",
           sessionId: workerEvent.sessionId,
           runId: workerEvent.runId,
           occurredAt: workerEvent.occurredAt,
           payload: { completedAt: workerEvent.occurredAt },
-        });
+        })];
       }
       if (workerEvent.status === "cancelled") {
-        return parseCouncilEvent({
+        return [parseCouncilEvent({
           id: workerEvent.eventId,
           type: "agent_run.cancelled",
           sessionId: workerEvent.sessionId,
           runId: workerEvent.runId,
           occurredAt: workerEvent.occurredAt,
           payload: { cancelledAt: workerEvent.occurredAt },
-        });
+        })];
       }
       if (workerEvent.status === "failed") {
-        return undefined;
+        return [];
       }
-      return parseCouncilEvent({
+      return [parseCouncilEvent({
         id: workerEvent.eventId,
         type: "agent_run.status_changed",
         sessionId: workerEvent.sessionId,
@@ -460,11 +711,11 @@ export class CouncilOrchestrator {
           previousStatus: run.status,
           status: workerEvent.status,
         },
-      });
+      })];
     }
 
     if (workerEvent.type === "delta") {
-      return parseCouncilEvent({
+      return [parseCouncilEvent({
         id: workerEvent.eventId,
         type: "contribution.delta",
         sessionId: workerEvent.sessionId,
@@ -475,40 +726,64 @@ export class CouncilOrchestrator {
           delta: workerEvent.delta,
           index: workerEvent.index,
         },
-      });
+      })];
     }
 
     if (workerEvent.type === "completed") {
-      return parseCouncilEvent({
-        id: workerEvent.eventId,
-        type: "contribution.completed",
-        sessionId: workerEvent.sessionId,
-        runId: workerEvent.runId,
-        occurredAt: workerEvent.occurredAt,
-        payload: {
-          contribution: {
-            id: workerEvent.contributionId,
-            sessionId: workerEvent.sessionId,
-            runId: workerEvent.runId,
-            agentDefinitionId: run.agentDefinitionId,
-            content: workerEvent.content,
-            status: "completed",
-            createdAt: run.contributionCreatedAt ?? workerEvent.occurredAt,
-            updatedAt: workerEvent.occurredAt,
+      if (run.contributionCompleted) {
+        return [];
+      }
+      const fragmentId = randomUUID();
+      return [
+        parseCouncilEvent({
+          id: workerEvent.eventId,
+          type: "contribution.completed",
+          sessionId: workerEvent.sessionId,
+          runId: workerEvent.runId,
+          occurredAt: workerEvent.occurredAt,
+          payload: {
+            contribution: {
+              id: workerEvent.contributionId,
+              sessionId: workerEvent.sessionId,
+              runId: workerEvent.runId,
+              agentDefinitionId: run.agentDefinitionId,
+              content: workerEvent.content,
+              status: "completed",
+              createdAt: run.contributionCreatedAt ?? workerEvent.occurredAt,
+              updatedAt: workerEvent.occurredAt,
+            },
+            modelExecution: workerEvent.modelExecution,
           },
-          modelExecution: workerEvent.modelExecution,
-        },
-      });
+        }),
+        parseCouncilEvent({
+          id: randomUUID(),
+          type: "fragment.created",
+          sessionId: workerEvent.sessionId,
+          occurredAt: workerEvent.occurredAt,
+          payload: {
+            fragment: {
+              id: fragmentId,
+              sessionId: workerEvent.sessionId,
+              contributionId: workerEvent.contributionId,
+              runId: workerEvent.runId,
+              content: workerEvent.content,
+              status: "available",
+              createdAt: workerEvent.occurredAt,
+              updatedAt: workerEvent.occurredAt,
+            },
+          },
+        }),
+      ];
     }
 
-    return parseCouncilEvent({
+    return [parseCouncilEvent({
       id: workerEvent.eventId,
       type: "agent_run.failed",
       sessionId: workerEvent.sessionId,
       runId: workerEvent.runId,
       occurredAt: workerEvent.occurredAt,
       payload: { failure: workerEvent.error },
-    });
+    })];
   }
 
   #persistAndApply(event: CouncilEventMessage): void {
@@ -560,6 +835,7 @@ export class CouncilOrchestrator {
         createdAt: session.createdAt,
         agentDefinitions: new Map(),
         runs: new Map(),
+        fragments: new Map(),
         events: [event],
         eventIds: new Set([event.id]),
       });
@@ -601,6 +877,7 @@ export class CouncilOrchestrator {
         agentDefinitionId: definition.id,
         status: event.payload.run.status,
         contribution: "",
+        contributionCompleted: false,
         nextDeltaIndex: 0,
       };
       session.runs.set(event.runId, run);
@@ -678,15 +955,147 @@ export class CouncilOrchestrator {
       run.contributionId = event.payload.contribution.id;
       run.contribution = event.payload.contribution.content;
       run.contributionCreatedAt = event.payload.contribution.createdAt;
+      run.contributionCompleted = true;
       if (event.payload.modelExecution === undefined) {
         delete run.modelExecution;
       } else {
         run.modelExecution = structuredClone(event.payload.modelExecution);
       }
+    } else if (event.type === "fragment.created") {
+      const fragment = event.payload.fragment;
+      const run = requireRun(session, fragment.runId);
+      if (
+        session.fragments.has(fragment.id) ||
+        fragment.sessionId !== event.sessionId ||
+        fragment.contributionId !== run.contributionId ||
+        !run.contributionCompleted ||
+        fragment.content !== run.contribution ||
+        fragment.status !== "available"
+      ) {
+        throw new Error(`Fragment ${fragment.id} conflicts with its contribution`);
+      }
+      session.fragments.set(fragment.id, {
+        fragment: structuredClone(fragment),
+      });
+      this.#fragmentToSession.set(fragment.id, event.sessionId);
+    } else if (event.type === "fragment.kept") {
+      requireFragmentsMutable(session, event.type);
+      const projection = requireFragment(session, event.payload.fragmentId);
+      requireFragmentTransition(projection.fragment, "kept", event.type);
+      projection.fragment = {
+        ...projection.fragment,
+        status: "kept",
+        updatedAt: event.occurredAt,
+      };
+    } else if (event.type === "fragment.composted") {
+      requireFragmentsMutable(session, event.type);
+      const projection = requireFragment(session, event.payload.fragmentId);
+      requireFragmentTransition(projection.fragment, "composted", event.type);
+      projection.fragment = {
+        ...projection.fragment,
+        status: "composted",
+        updatedAt: event.occurredAt,
+      };
+    } else if (event.type === "challenge.requested") {
+      requireFragmentsMutable(session, event.type);
+      const projection = requireFragment(session, event.payload.fragmentId);
+      requireFragmentTransition(projection.fragment, "challenged", event.type);
+      projection.fragment = {
+        ...projection.fragment,
+        status: "challenged",
+        updatedAt: event.occurredAt,
+      };
+      if (event.payload.prompt === undefined) {
+        delete projection.challengePrompt;
+      } else {
+        projection.challengePrompt = event.payload.prompt;
+      }
+    } else if (event.type === "decision.forged") {
+      const decision = event.payload.decision;
+      if (
+        session.decision !== undefined ||
+        decision.sessionId !== event.sessionId ||
+        new Set(decision.sources.map((source) => source.fragmentId)).size !==
+          decision.sources.length
+      ) {
+        throw new Error(`Decision ${decision.id} conflicts with this session`);
+      }
+      for (const source of decision.sources) {
+        const fragment = requireFragment(session, source.fragmentId).fragment;
+        const run = requireRun(session, source.runId);
+        if (
+          fragment.status !== "kept" ||
+          fragment.contributionId !== source.contributionId ||
+          fragment.runId !== source.runId ||
+          run.agentDefinitionId !== source.agentDefinitionId
+        ) {
+          throw new Error(`Decision ${decision.id} contains invalid provenance`);
+        }
+      }
+      session.decision = structuredClone(decision);
+    } else if (event.type === "return_point.updated") {
+      const returnPoint = event.payload.returnPoint;
+      if (
+        session.returnPoint !== undefined ||
+        session.decision === undefined ||
+        returnPoint.sessionId !== event.sessionId ||
+        returnPoint.decisionId !== session.decision.id
+      ) {
+        throw new Error("Return point conflicts with the forged decision");
+      }
+      session.returnPoint = structuredClone(returnPoint);
     }
 
     session.eventIds.add(event.id);
     session.events.push(event);
+  }
+
+  #reconcileMissingFragments(): void {
+    const events: CouncilEventMessage[] = [];
+    for (const session of this.#sessions.values()) {
+      const contributionIds = new Set(
+        [...session.fragments.values()].map(
+          (projection) => projection.fragment.contributionId,
+        ),
+      );
+      for (const run of session.runs.values()) {
+        if (
+          !run.contributionCompleted ||
+          run.contributionId === undefined ||
+          run.contribution.trim().length === 0 ||
+          contributionIds.has(run.contributionId)
+        ) {
+          continue;
+        }
+        const occurredAt = new Date().toISOString();
+        const fragmentId = randomUUID();
+        events.push(
+          parseCouncilEvent({
+            id: randomUUID(),
+            type: "fragment.created",
+            sessionId: session.sessionId,
+            occurredAt,
+            payload: {
+              fragment: {
+                id: fragmentId,
+                sessionId: session.sessionId,
+                contributionId: run.contributionId,
+                runId: run.runId,
+                content: run.contribution,
+                status: "available",
+                createdAt: occurredAt,
+                updatedAt: occurredAt,
+              },
+            },
+          }),
+        );
+        contributionIds.add(run.contributionId);
+      }
+    }
+    const inserted = this.#journal.appendMany(events);
+    for (const entry of inserted) {
+      this.#applyCommitted(entry);
+    }
   }
 
   #reconcileInterruptedRuns(): void {
@@ -727,6 +1136,15 @@ export class CouncilOrchestrator {
       createdAt: session.createdAt,
       eventCursor: this.#journal.latestSequence(session.sessionId),
       runs,
+      fragments: [...session.fragments.values()].map((projection) =>
+        structuredClone(projection.fragment),
+      ),
+      ...(session.decision === undefined
+        ? {}
+        : { decision: structuredClone(session.decision) }),
+      ...(session.returnPoint === undefined
+        ? {}
+        : { returnPoint: structuredClone(session.returnPoint) }),
       events: session.events.map((event) => structuredClone(event)),
     };
   }
@@ -750,6 +1168,40 @@ function requireRun(session: SessionRecord, runId: string): MutableRunProjection
     throw new Error(`Run ${runId} is missing from the journal projection`);
   }
   return run;
+}
+
+function requireFragment(
+  session: SessionRecord,
+  fragmentId: string,
+): MutableFragmentProjection {
+  const fragment = session.fragments.get(fragmentId);
+  if (fragment === undefined) {
+    throw new Error(`Fragment ${fragmentId} is missing from the journal projection`);
+  }
+  return fragment;
+}
+
+function requireFragmentsMutable(
+  session: SessionRecord,
+  eventType: CouncilEventMessage["type"],
+): void {
+  if (session.decision !== undefined) {
+    throw new Error(`${eventType} cannot change a fragment after decision.forged`);
+  }
+}
+
+function requireFragmentTransition(
+  fragment: FragmentMessage,
+  target: Extract<FragmentStatus, "kept" | "challenged" | "composted">,
+  eventType: CouncilEventMessage["type"],
+): void {
+  const current = fragment.status;
+  const allowed = canTransitionFragmentStatus(current, target);
+  if (!allowed) {
+    throw new Error(
+      `${eventType} cannot move fragment ${fragment.id} from ${current} to ${target}`,
+    );
+  }
 }
 
 function requireRunStatus(
@@ -807,4 +1259,39 @@ function sessionStatus(
   return runs.every((run) => TERMINAL_STATUSES.has(run.status))
     ? "completed"
     : "running";
+}
+
+function normalizeOptionalText(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized === undefined || normalized.length === 0
+    ? undefined
+    : normalized;
+}
+
+interface NormalizedDecisionInput {
+  readonly statement: string;
+  readonly rationale: string;
+  readonly objection: string | undefined;
+  readonly reviewCondition: string | undefined;
+  readonly nextSmallStep: string;
+}
+
+function decisionMatches(
+  decision: DecisionMessage,
+  returnPoint: ReturnPointMessage | undefined,
+  fragmentIds: readonly string[],
+  input: NormalizedDecisionInput,
+): boolean {
+  return (
+    returnPoint !== undefined &&
+    decision.statement === input.statement &&
+    decision.rationale === input.rationale &&
+    decision.objection === input.objection &&
+    decision.reviewCondition === input.reviewCondition &&
+    returnPoint.nextSmallStep === input.nextSmallStep &&
+    decision.sources.length === fragmentIds.length &&
+    decision.sources.every(
+      (source, index) => source.fragmentId === fragmentIds[index],
+    )
+  );
 }

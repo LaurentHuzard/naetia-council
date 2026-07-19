@@ -169,6 +169,114 @@ describe.sequential("SQLite Council event journal", () => {
     verificationJournal.close();
   });
 
+  it("backfills one fragment for a historical completed contribution", async () => {
+    const databasePath = temporaryDatabasePath();
+    const created = sessionCreatedEvent();
+    const runId = randomUUID();
+    const contributionId = randomUUID();
+    const definition = {
+      id: "architect.v1",
+      role: "architect",
+      name: "Architect",
+      perspective: "Structure et clarifie.",
+      instructions: "Trouve le prochain geste.",
+      version: 1,
+    } as const;
+    const journal = new SqliteEventJournal(databasePath);
+    journal.appendMany([
+      created,
+      parseCouncilEvent({
+        id: randomUUID(),
+        type: "session.convened",
+        sessionId: created.sessionId,
+        occurredAt: "2026-07-19T12:00:01.000Z",
+        payload: { agentDefinitions: [definition] },
+      }),
+      parseCouncilEvent({
+        id: randomUUID(),
+        type: "agent_run.spawned",
+        sessionId: created.sessionId,
+        runId,
+        occurredAt: "2026-07-19T12:00:02.000Z",
+        payload: {
+          run: {
+            id: runId,
+            sessionId: created.sessionId,
+            agentDefinitionId: definition.id,
+            status: "pending",
+          },
+        },
+      }),
+      parseCouncilEvent({
+        id: randomUUID(),
+        type: "agent_run.started",
+        sessionId: created.sessionId,
+        runId,
+        occurredAt: "2026-07-19T12:00:03.000Z",
+        payload: { processId: 88_888 },
+      }),
+      parseCouncilEvent({
+        id: randomUUID(),
+        type: "agent_run.status_changed",
+        sessionId: created.sessionId,
+        runId,
+        occurredAt: "2026-07-19T12:00:04.000Z",
+        payload: { previousStatus: "starting", status: "running" },
+      }),
+      parseCouncilEvent({
+        id: randomUUID(),
+        type: "contribution.completed",
+        sessionId: created.sessionId,
+        runId,
+        occurredAt: "2026-07-19T12:00:05.000Z",
+        payload: {
+          contribution: {
+            id: contributionId,
+            sessionId: created.sessionId,
+            runId,
+            agentDefinitionId: definition.id,
+            content: "Une contribution antérieure à l’Orbite 5.",
+            status: "completed",
+            createdAt: "2026-07-19T12:00:05.000Z",
+            updatedAt: "2026-07-19T12:00:05.000Z",
+          },
+        },
+      }),
+      parseCouncilEvent({
+        id: randomUUID(),
+        type: "agent_run.completed",
+        sessionId: created.sessionId,
+        runId,
+        occurredAt: "2026-07-19T12:00:06.000Z",
+        payload: { completedAt: "2026-07-19T12:00:06.000Z" },
+      }),
+    ]);
+    journal.close();
+
+    const firstRestart = new CouncilOrchestrator({
+      journal: new SqliteEventJournal(databasePath),
+    });
+    expect(firstRestart.getSession(created.sessionId)?.fragments).toEqual([
+      expect.objectContaining({
+        contributionId,
+        runId,
+        content: "Une contribution antérieure à l’Orbite 5.",
+        status: "available",
+      }),
+    ]);
+    await firstRestart.close();
+
+    const secondRestart = new CouncilOrchestrator({
+      journal: new SqliteEventJournal(databasePath),
+    });
+    const recovered = secondRestart.getSession(created.sessionId);
+    expect(recovered?.fragments).toHaveLength(1);
+    expect(
+      recovered?.events.filter((event) => event.type === "fragment.created"),
+    ).toHaveLength(1);
+    await secondRestart.close();
+  });
+
   it("applies the initial migration idempotently", () => {
     const databasePath = temporaryDatabasePath();
     new SqliteEventJournal(databasePath).close();

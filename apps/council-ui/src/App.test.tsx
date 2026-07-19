@@ -67,7 +67,6 @@ function renderApp() {
 afterEach(() => {
   useCouncilUiStore.setState({
     activeSessionId: null,
-    followsLiveActivity: true,
   });
   localStorage.clear();
   FakeEventSource.instances = [];
@@ -133,6 +132,7 @@ describe('Naetia Council shell', () => {
       status: 'running',
       createdAt: '2026-07-19T12:00:00.000Z',
       eventCursor: 8,
+      fragments: [],
       runs: [
         {
           runId: 'run-architect',
@@ -229,6 +229,205 @@ describe('Naetia Council shell', () => {
     expect(localStorage.getItem('naetia-council-ui')).toContain('session-1');
   });
 
+  it('keeps a fragment, forges a sourced decision and renders the return point', async () => {
+    const completedAt = '2026-07-19T12:05:00.000Z';
+    const baseSnapshot: CouncilSessionSnapshot = {
+      sessionId: 'session-outcome',
+      quest: {
+        questId: 'quest-outcome',
+        title: 'Choisir un passage réversible',
+        context: 'Garder une objection ouverte.',
+      },
+      status: 'completed',
+      createdAt: '2026-07-19T12:00:00.000Z',
+      eventCursor: 20,
+      runs: [
+        {
+          runId: 'run-architect',
+          sessionId: 'session-outcome',
+          agentId: 'architect',
+          agentDefinitionId: 'architect.v1',
+          status: 'completed',
+          contribution: 'Tracer un passage étroit, observable et réversible.',
+          startedAt: '2026-07-19T12:00:00.000Z',
+          completedAt,
+        },
+        {
+          runId: 'run-trickster',
+          sessionId: 'session-outcome',
+          agentId: 'trickster',
+          agentDefinitionId: 'trickster.v1',
+          status: 'completed',
+          contribution: 'Tester si deux voix suffiraient.',
+          startedAt: '2026-07-19T12:00:00.000Z',
+          completedAt,
+        },
+        {
+          runId: 'run-guardian',
+          sessionId: 'session-outcome',
+          agentId: 'guardian',
+          agentDefinitionId: 'guardian.v1',
+          status: 'completed',
+          contribution: 'Fixer une règle d’arrêt avant le test.',
+          startedAt: '2026-07-19T12:00:00.000Z',
+          completedAt,
+        },
+      ],
+      fragments: [
+        {
+          id: 'fragment-architect',
+          sessionId: 'session-outcome',
+          contributionId: 'contribution-architect',
+          runId: 'run-architect',
+          content: 'Tracer un passage étroit, observable et réversible.',
+          status: 'available',
+          createdAt: completedAt,
+          updatedAt: completedAt,
+        },
+        {
+          id: 'fragment-trickster',
+          sessionId: 'session-outcome',
+          contributionId: 'contribution-trickster',
+          runId: 'run-trickster',
+          content: 'Tester si deux voix suffiraient.',
+          status: 'available',
+          createdAt: completedAt,
+          updatedAt: completedAt,
+        },
+        {
+          id: 'fragment-guardian',
+          sessionId: 'session-outcome',
+          contributionId: 'contribution-guardian',
+          runId: 'run-guardian',
+          content: 'Fixer une règle d’arrêt avant le test.',
+          status: 'available',
+          createdAt: completedAt,
+          updatedAt: completedAt,
+        },
+      ],
+      events: [],
+    };
+    let snapshot = baseSnapshot;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === '/api/health') {
+          return new Response(JSON.stringify({ status: 'ok' }), { status: 200 });
+        }
+        if (path === '/api/sessions/session-outcome') {
+          return new Response(JSON.stringify(snapshot), { status: 200 });
+        }
+        if (path === '/api/fragments/fragment-architect/keep') {
+          snapshot = {
+            ...snapshot,
+            eventCursor: 21,
+            fragments: snapshot.fragments.map((fragment) =>
+              fragment.id === 'fragment-architect'
+                ? { ...fragment, status: 'kept', updatedAt: completedAt }
+                : fragment,
+            ),
+          };
+          return new Response(JSON.stringify(snapshot), { status: 200 });
+        }
+        if (path === '/api/fragments/fragment-guardian/compost') {
+          snapshot = {
+            ...snapshot,
+            eventCursor: 22,
+            fragments: snapshot.fragments.map((fragment) =>
+              fragment.id === 'fragment-guardian'
+                ? { ...fragment, status: 'composted', updatedAt: completedAt }
+                : fragment,
+            ),
+          };
+          return new Response(JSON.stringify(snapshot), { status: 200 });
+        }
+        if (path === '/api/sessions/session-outcome/forge') {
+          expect(JSON.parse(String(init?.body))).toMatchObject({
+            fragmentIds: ['fragment-architect'],
+          });
+          snapshot = {
+            ...snapshot,
+            eventCursor: 24,
+            decision: {
+              id: 'decision-1',
+              sessionId: 'session-outcome',
+              statement: 'Ouvrir un passage réversible.',
+              rationale: 'Le test réduit l’incertitude sans alourdir la quête.',
+              objection: 'La fatigue peut fausser la lecture.',
+              reviewCondition: 'Réviser si la confusion augmente.',
+              sources: [
+                {
+                  fragmentId: 'fragment-architect',
+                  contributionId: 'contribution-architect',
+                  runId: 'run-architect',
+                  agentDefinitionId: 'architect.v1',
+                },
+              ],
+              createdAt: completedAt,
+            },
+            returnPoint: {
+              sessionId: 'session-outcome',
+              decisionId: 'decision-1',
+              summary: 'Ouvrir un passage réversible.',
+              openObjection: 'La fatigue peut fausser la lecture.',
+              nextSmallStep: 'Tester pendant dix minutes.',
+              updatedAt: completedAt,
+            },
+          };
+          return new Response(JSON.stringify(snapshot), { status: 200 });
+        }
+        return new Response(null, { status: 404 });
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    useCouncilUiStore.setState({ activeSessionId: 'session-outcome' });
+
+    renderApp();
+
+    const architectLoot = await screen.findByRole('article', {
+      name: 'Fragment Architect',
+    });
+    fireEvent.click(within(architectLoot).getByRole('button', { name: 'KEEP' }));
+    await waitFor(() =>
+      expect(within(architectLoot).getByText('Conservé')).toBeVisible(),
+    );
+
+    const guardianLoot = screen.getByRole('article', {
+      name: 'Fragment Guardian',
+    });
+    fireEvent.click(within(guardianLoot).getByRole('button', { name: 'COMPOST' }));
+    await waitFor(() =>
+      expect(within(guardianLoot).getByText('Composté')).toBeVisible(),
+    );
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Architect/ }));
+    fireEvent.change(screen.getByLabelText('Décision'), {
+      target: { value: 'Ouvrir un passage réversible.' },
+    });
+    fireEvent.change(screen.getByLabelText('Pourquoi maintenant ?'), {
+      target: { value: 'Le test réduit l’incertitude sans alourdir la quête.' },
+    });
+    fireEvent.change(screen.getByLabelText('Objection conservée'), {
+      target: { value: 'La fatigue peut fausser la lecture.' },
+    });
+    fireEvent.change(screen.getByLabelText('Condition de révision'), {
+      target: { value: 'Réviser si la confusion augmente.' },
+    });
+    fireEvent.change(screen.getByLabelText('Prochain petit geste'), {
+      target: { value: 'Tester pendant dix minutes.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Forger la décision' }));
+
+    const returnPanel = await screen.findByRole('region', {
+      name: 'Ouvrir un passage réversible.',
+    });
+    expect(within(returnPanel).getByText('Architect')).toBeVisible();
+    expect(within(returnPanel).getByText('La fatigue peut fausser la lecture.'))
+      .toBeVisible();
+    expect(within(returnPanel).getByText('Tester pendant dix minutes.')).toBeVisible();
+    expect(screen.queryByRole('checkbox', { name: /Guardian/ })).not.toBeInTheDocument();
+  });
+
   it('opens SSE after the snapshot and ignores a repeated cursor', async () => {
     const baseRun = {
       runId: 'run-architect',
@@ -246,6 +445,7 @@ describe('Naetia Council shell', () => {
       status: 'created',
       createdAt: '2026-07-19T12:00:00.000Z',
       eventCursor: 1,
+      fragments: [],
       runs: [],
       events: [],
     } as const;
@@ -270,6 +470,7 @@ describe('Naetia Council shell', () => {
     let serverSnapshot: CouncilSessionSnapshot = {
       ...runningSnapshot,
       runs: [...runningSnapshot.runs],
+      fragments: [...runningSnapshot.fragments],
       events: [...runningSnapshot.events],
     };
     const fetchMock = vi.fn(
@@ -311,6 +512,7 @@ describe('Naetia Council shell', () => {
       ...runningSnapshot,
       eventCursor: 9,
       runs: [{ ...baseRun, contribution: 'Signal SSE reçu.' }],
+      fragments: [...runningSnapshot.fragments],
       events: [deltaEvent],
     };
     source.emitCouncilEvent(deltaEvent, '9');
