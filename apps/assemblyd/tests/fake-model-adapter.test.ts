@@ -10,6 +10,9 @@ describe("FakeModelAdapter", () => {
     for await (const event of adapter.stream(
       {
         agentId: "architect",
+        agentName: "Architect",
+        perspective: "Structure et clarifie.",
+        instructions: "Transforme la quête en prochain geste concret.",
         quest: { title: "Choisir une direction" },
         latencyMs: 0,
       },
@@ -32,6 +35,9 @@ describe("FakeModelAdapter", () => {
       for await (const event of adapter.stream(
         {
           agentId: "guardian",
+          agentName: "Guardian",
+          perspective: "Détecte les risques et la surcharge.",
+          instructions: "Protège le rythme et le pouvoir de décision humain.",
           quest: { title: "Protéger le rythme" },
           latencyMs: 1_000,
         },

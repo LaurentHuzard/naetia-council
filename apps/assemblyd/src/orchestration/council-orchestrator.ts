@@ -8,9 +8,12 @@ import type {
   Quest,
 } from "@naetia/assembly-domain";
 import {
+  agentWorkerModelOptionsSchema,
   parseCouncilEvent,
   type AgentWorkerEvent,
+  type AgentWorkerModelOptions,
   type CouncilEventMessage,
+  type ModelExecutionMessage,
 } from "@naetia/assembly-protocol";
 
 import {
@@ -73,6 +76,7 @@ export interface RunSnapshot {
   readonly startedAt?: string;
   readonly completedAt?: string;
   readonly error?: Readonly<{ code: string; message: string }>;
+  readonly modelExecution?: ModelExecutionMessage;
 }
 
 export interface SessionSnapshot {
@@ -100,6 +104,7 @@ export interface ConveneOptions {
 export interface CouncilOrchestratorOptions {
   readonly processManager?: AgentProcessManager;
   readonly journal?: SqliteEventJournal;
+  readonly model?: AgentWorkerModelOptions;
 }
 
 interface MutableRunProjection {
@@ -116,6 +121,7 @@ interface MutableRunProjection {
   startedAt?: string;
   completedAt?: string;
   error?: Readonly<{ code: string; message: string }>;
+  modelExecution?: ModelExecutionMessage;
 }
 
 interface SessionRecord {
@@ -135,12 +141,16 @@ export class CouncilOrchestrator {
   readonly #runToSession = new Map<string, string>();
   readonly #persistenceFailedRuns = new Set<string>();
   readonly #publishedEvents = new EventEmitter();
+  readonly #model: AgentWorkerModelOptions;
   readonly #unsubscribe: () => void;
   #fatalPersistenceError: JournalError | undefined;
 
   constructor(options: CouncilOrchestratorOptions = {}) {
     this.#processManager = options.processManager ?? new AgentProcessManager();
     this.#journal = options.journal ?? new SqliteEventJournal(":memory:");
+    this.#model = agentWorkerModelOptionsSchema.parse(
+      options.model ?? { adapter: "fake" },
+    );
     this.#publishedEvents.setMaxListeners(0);
 
     try {
@@ -243,39 +253,40 @@ export class CouncilOrchestrator {
 
     for (const { definition, runId } of preparedRuns) {
       const behavior = options.behaviorByAgent?.[definition.role];
+      const model =
+        this.#model.adapter === "fake"
+          ? {
+              ...this.#model,
+              ...(behavior?.latencyMs === undefined
+                ? {}
+                : { latencyMs: behavior.latencyMs }),
+              ...(behavior?.failAtDelta === undefined
+                ? {}
+                : { failAtDelta: behavior.failAtDelta }),
+              ...(behavior?.crashAtDelta === undefined
+                ? {}
+                : { crashAtDelta: behavior.crashAtDelta }),
+              ...(behavior?.empty === undefined
+                ? {}
+                : { empty: behavior.empty }),
+            }
+          : this.#model;
       let liveRun: LiveRunSnapshot;
       try {
         liveRun = this.#processManager.spawn({
           runId,
           sessionId,
-          agentId: definition.role,
+          agentDefinition: definition,
           quest: {
             title: session.quest.title,
             ...(session.quest.context === undefined
               ? {}
               : { context: session.quest.context }),
           },
-          ...(behavior === undefined
+          model,
+          ...(behavior?.timeoutMs === undefined
             ? {}
-            : {
-                model: {
-                  ...(behavior.latencyMs === undefined
-                    ? {}
-                    : { latencyMs: behavior.latencyMs }),
-                  ...(behavior.failAtDelta === undefined
-                    ? {}
-                    : { failAtDelta: behavior.failAtDelta }),
-                  ...(behavior.crashAtDelta === undefined
-                    ? {}
-                    : { crashAtDelta: behavior.crashAtDelta }),
-                  ...(behavior.empty === undefined
-                    ? {}
-                    : { empty: behavior.empty }),
-                },
-                ...(behavior.timeoutMs === undefined
-                  ? {}
-                  : { timeoutMs: behavior.timeoutMs }),
-              }),
+            : { timeoutMs: behavior.timeoutMs }),
         });
       } catch (error) {
         this.#persistAndApply(
@@ -485,6 +496,7 @@ export class CouncilOrchestrator {
             createdAt: run.contributionCreatedAt ?? workerEvent.occurredAt,
             updatedAt: workerEvent.occurredAt,
           },
+          modelExecution: workerEvent.modelExecution,
         },
       });
     }
@@ -666,6 +678,11 @@ export class CouncilOrchestrator {
       run.contributionId = event.payload.contribution.id;
       run.contribution = event.payload.contribution.content;
       run.contributionCreatedAt = event.payload.contribution.createdAt;
+      if (event.payload.modelExecution === undefined) {
+        delete run.modelExecution;
+      } else {
+        run.modelExecution = structuredClone(event.payload.modelExecution);
+      }
     }
 
     session.eventIds.add(event.id);
@@ -775,6 +792,9 @@ function runSnapshot(run: MutableRunProjection): RunSnapshot {
     ...(run.startedAt === undefined ? {} : { startedAt: run.startedAt }),
     ...(run.completedAt === undefined ? {} : { completedAt: run.completedAt }),
     ...(run.error === undefined ? {} : { error: { ...run.error } }),
+    ...(run.modelExecution === undefined
+      ? {}
+      : { modelExecution: structuredClone(run.modelExecution) }),
   };
 }
 

@@ -7,6 +7,8 @@ export type AssemblyHealth = {
   status: 'ok';
   service?: string;
   timestamp?: string;
+  modelAdapter?: 'fake' | 'codex-cli';
+  model?: string;
 };
 
 export type AgentRunStatus =
@@ -65,7 +67,14 @@ function isAssemblyHealth(value: unknown): value is AssemblyHealth {
     return false;
   }
 
-  return 'status' in value && value.status === 'ok';
+  return (
+    'status' in value &&
+    value.status === 'ok' &&
+    (!('modelAdapter' in value) ||
+      value.modelAdapter === 'fake' ||
+      value.modelAdapter === 'codex-cli') &&
+    (!('model' in value) || typeof value.model === 'string')
+  );
 }
 
 export async function fetchAssemblyHealth(

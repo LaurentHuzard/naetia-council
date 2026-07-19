@@ -2,55 +2,55 @@
 
 ## Current objective
 
-Clôturer l’Orbite 4 avec un flux SSE rejouable, un snapshot HTTP autoritaire et une interface capable de reprendre après une coupure sans dupliquer les événements.
+Faire fonctionner en priorité le Council avec Codex CLI sans dégrader le faux modèle déterministe, l’isolation des trois runs ni la propriété SQLite de The Assembly.
 
 ## Current state
 
-Les Orbites 0 à 4 sont terminées localement. Chaque snapshot de session expose la dernière séquence SQLite durable. L’interface charge ce snapshot avec TanStack Query, ouvre ensuite un `EventSource` et coalesce les événements live en relectures autoritaires. Le transport SSE rejoue le journal après un curseur, accepte `Last-Event-ID`, déduplique par séquence et maintient les runs visuellement séparés.
+Le mode `codex-cli` est fonctionnel de bout en bout. Une convocation lance trois processus agents distincts et chacun exécute son propre `codex exec` avec la définition versionnée d’Architect, Trickster ou Guardian. Le prompt passe sur stdin ; l’invocation est éphémère, en lecture seule, sans recherche web, dans un répertoire temporaire vide et avec un environnement limité à `CODEX_HOME`.
+
+Le faux modèle reste le mode par défaut. Le daemon expose l’adaptateur actif dans `/health`, l’interface l’indique dans son en-tête, et les contributions réelles conservent leur durée ainsi que l’usage retourné par Codex dans le journal SQLite.
 
 ## Last completed orbit
 
-**Orbite 4 — Ouvrir les signaux vers l’interface.** Le navigateur reçoit les contributions progressivement via `GET /sessions/:sessionId/events`, recharge un snapshot après les signaux, rattrape les événements manqués et conserve la session lors d’un rafraîchissement ou d’un redémarrage du daemon.
+**Boucle prioritaire — Council sur Codex CLI.** Le parcours Quest → Convene → trois contributions indépendantes a été exécuté avec Codex CLI 0.144.6 authentifié via ChatGPT. La session réelle `d57e1358-69bb-49f1-8d93-c96f909311bd` a terminé avec trois PID distincts (`276512`, `276513`, `276514`) et trois contenus propres aux rôles. Après redémarrage du daemon sur le même SQLite, les contributions et leurs mesures ont été reconstruites sans PID vivant.
 
 ## Commands verified
 
-- `rtk proxy pnpm install --offline --store-dir /tmp/naetia-pnpm-store` — lockfile et dépendance workspace UI/protocole résolus sans réseau.
-- `rtk proxy pnpm typecheck` — réussi sur les quatre projets applicatifs.
-- `rtk proxy pnpm lint` — réussi, zéro warning.
-- `rtk proxy pnpm test` — 42 tests réussis sur tout le workspace (29 daemon, 4 UI, 3 domaine, 6 protocole).
-- `rtk proxy pnpm build` — réussi sur tout le workspace.
-- Tests transport — curseur exclusif, priorité de `Last-Event-ID`, sérialisation SSE, ordre rejouable, isolation d’un listener déconnecté, requêtes invalides et session absente.
-- Test UI — ouverture après le snapshot, passage `live → reconnecting → live`, validation Zod et rejet d’un curseur déjà reçu.
-- Chromium réel sur `127.0.0.1:5173` — trois PID distincts, deltas progressifs dans trois cartes, aucun message console d’erreur.
-- Reprise SSE réelle — `after=1` avec `Last-Event-ID: 28` a renvoyé uniquement `id: 29` au format `council-event`.
-- Redémarrage sur la même base — la page rechargée a retrouvé les trois contributions terminées et a remplacé les PID par « Exécution restaurée du journal ».
-- Annulation réelle — Guardian est passé à `cancelled` pendant qu’Architect et Trickster restaient `running`.
-- Vue responsive vérifiée à `1505×1045` et `390×844`.
+- `rtk pnpm typecheck` — réussi.
+- `rtk pnpm lint` — réussi, zéro warning.
+- `rtk pnpm build` — réussi sur les quatre projets du workspace.
+- `rtk pnpm test` — 57 tests réussis : 44 daemon, 4 UI, 3 domaine et 6 protocole.
+- Test ciblé Codex CLI — 11 tests réussis : JSONL, prompt stdin, options de confinement, usage, erreurs stables, stderr masqué, exécutable absent et annulation.
+- `rtk codex --version` — `codex-cli 0.144.6`.
+- `rtk codex login status` — authentifié avec ChatGPT.
+- `GET /health` sur le daemon réel — `modelAdapter: codex-cli`.
+- Convocation réelle — trois runs `completed` en 13 280 ms, 16 793 ms et 15 048 ms.
+- Usage réel journalisé — 29 414 tokens d’entrée dont 20 736 en cache, 1 009 tokens de sortie et 0 token de raisonnement déclaré sur les trois appels.
+- Redémarrage réel — session reconstruite à `eventCursor: 44`, trois contributions complètes et trois `modelExecution` conservés.
 
 ## Decisions
 
-- La séquence SQLite est le curseur SSE ; l’UUID événementiel reste l’identité métier.
-- Le snapshot expose `eventCursor` et reste la source de vérité de l’interface.
-- Le SSE transporte un `CouncilEvent` nu, validé par le protocole, sous le nom `council-event` ; son champ `id` contient la séquence durable.
-- Le serveur prend le maximum entre `after` et `Last-Event-ID`.
-- Le transport s’abonne avant de lire le backlog, tamponne les nouveaux événements puis trie et déduplique avant le passage en live.
-- Une erreur de listener SSE ne remonte jamais dans l’orchestrateur durable.
-- L’interface ne maintient pas un second reducer métier : elle coalesce les signaux et recharge le snapshot TanStack Query.
-- Le polling à une seconde n’est qu’un filet de sécurité lorsqu’un run est actif et que le flux n’est pas live.
+- Le vrai modèle est opt-in avec `MODEL_ADAPTER=codex-cli`; `fake` reste la valeur par défaut et la base des tests réseau-indépendants.
+- Une voix correspond à un fork et à une invocation Codex distincte. Aucun appel unique ne simule les trois rôles.
+- La définition complète de l’agent traverse l’IPC comme contexte immuable ; le worker ne duplique pas les personas.
+- Seul `CODEX_HOME` est transmis au worker et au CLI. Les variables fournisseur du daemon ne traversent pas cette frontière.
+- Codex est lancé directement, sans shell, avec `--ephemeral`, `--ignore-user-config`, `--ignore-rules`, `--sandbox read-only`, recherche web désactivée et héritage shell désactivé.
+- Le JSONL stable fournit actuellement un message final et non des deltas textuels. The Assembly révèle donc le résultat en fragments post-réponse et documente honnêtement cette limite.
+- La durée et l’usage modèle appartiennent à l’événement durable `contribution.completed` afin d’être reconstruits après redémarrage.
 
 ## Known risks
 
-- Un signal live déclenche encore une relecture de snapshot complet. Les rafraîchissements sont coalescés, mais le coût devra être mesuré avant des sessions longues.
-- Le contrat de snapshot HTTP reste défini côté daemon et validé côté UI ; seul `CouncilEvent` est actuellement partagé par `assembly-protocol`.
-- Les erreurs runtime remontent encore leur message technique en anglais dans les cartes.
-- Une erreur SQLite pendant un événement enfant exige un redémarrage du daemon après restauration du stockage ; aucun retry automatique n’est tenté.
-- Le worker est construit au démarrage de `pnpm dev`, mais un changement de son source demande une relance.
+- Trois voix consomment trois appels. Le smoke minimal a utilisé environ 29,4 k tokens d’entrée, malgré une majorité en cache ; le mode réel ne doit pas devenir le défaut de développement.
+- La contribution reste vide pendant l’inférence Codex, puis apparaît rapidement en fragments. Un vrai streaming demanderait une sortie CLI textuelle incrémentale stable ou un autre adaptateur.
+- Le mode réel dépend de la compatibilité des options du CLI et d’une session locale authentifiée ; les erreurs sont isolées par run mais cette dépendance doit rester visible.
+- L’interface indique l’adaptateur actif mais n’affiche pas encore durée et consommation par carte.
+- Les tests qui lancent un exécutable enfant nécessitent un environnement autorisant `spawn`; le sandbox restreint de l’agent retourne `EPERM`, alors que la suite hors sandbox et le runtime réel réussissent.
 
 ## Open questions
 
+- Faut-il afficher immédiatement durée et usage dans les cartes, ou attendre la Forge pour éviter de charger l’Assembly ?
 - Quel plus petit modèle de `Fragment` permet KEEP, CHALLENGE et COMPOST sans introduire une seconde vérité éditoriale ?
-- La Forge doit-elle accepter uniquement des fragments conservés, ou toute provenance non compostée ?
 
 ## Next orbit
 
-**Orbite 5 — Construire la Porte du Royaume.** Ajouter les fragments, leur disposition humaine, la Forge et le Return Point dans un parcours vertical persistant sans élargir l’infrastructure.
+**Orbite 5 — Construire la Porte du Royaume.** Ajouter les fragments, leur disposition humaine, la Forge et le Return Point dans un parcours vertical persistant, en conservant le faux modèle par défaut et Codex CLI comme preuve réelle opt-in.

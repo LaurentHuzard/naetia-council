@@ -14,7 +14,11 @@ describe.sequential("assemblyd HTTP API", () => {
     const response = await app.inject({ method: "GET", url: "/health" });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ status: "ok", service: "assemblyd" });
+    expect(response.json()).toEqual({
+      status: "ok",
+      service: "assemblyd",
+      modelAdapter: "fake",
+    });
   });
 
   it("creates, convenes and observes a Council session", async () => {
