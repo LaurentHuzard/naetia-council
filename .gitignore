@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.playwright-cli/
+*.tsbuildinfo
+.env
+.env.local
+data/*.sqlite
+data/*.sqlite-*
+data/*.db
+.DS_Store
