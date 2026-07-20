@@ -1,6 +1,6 @@
 # Naetia Council Roadmap
 
-## Livré — Porte initiale, Orbites 0 à 5.2
+## Livré — Porte initiale, Orbites 0 à 5.3
 
 - workspace TypeScript strict et protocoles validés ;
 - trois runs agents isolés avec faux modèle déterministe ou Codex CLI ;
@@ -10,17 +10,19 @@
 - Return Point restauré après rafraîchissement et redémarrage.
 - Port compact des sessions récentes et reprise explicite d’une ancienne quête.
 - session de révision liée, décision source immuable et nouvelle convocation explicite.
+- seconde délibération réelle avec D1 et intention présentes dans trois prompts Codex distincts.
+- durée et compteurs JSONL par voix, validés côté client et restaurés après redémarrage.
 
-## Maintenant — prouver la révision avec Codex CLI
+## Maintenant — challenger une voix sans alourdir la quête
 
-- vérifier que l’intention et D1 atteignent bien chaque nouvelle voix ;
-- comparer D1 et D2 sans réduire leurs provenances à un transcript ;
-- rendre durée et consommation visibles par nouvelle délibération ;
-- garder le faux modèle comme chemin de test par défaut.
+- transformer CHALLENGE en demande humaine explicite ;
+- lancer au plus une voix ciblée et observable ;
+- conserver le fragment initial et rattacher le contrepoint à sa provenance ;
+- afficher l’appel supplémentaire avant de consommer des tokens.
 
 ## Ensuite — à décider par preuve
 
-- améliorer la visibilité de la durée et de la consommation du mode Codex ;
+- décider si une convocation réelle a besoin d’un plafond de durée ou de tokens ;
 - ne poursuivre le streaming natif que si le CLI expose un flux incrémental
   stable.
 

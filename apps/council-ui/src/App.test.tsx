@@ -251,6 +251,17 @@ describe('Naetia Council shell', () => {
           contribution: 'Tracer un passage étroit, observable et réversible.',
           startedAt: '2026-07-19T12:00:00.000Z',
           completedAt,
+          modelExecution: {
+            adapter: 'codex-cli',
+            model: 'gpt-proof',
+            durationMs: 12_400,
+            usage: {
+              inputTokens: 1_240,
+              cachedInputTokens: 800,
+              outputTokens: 180,
+              reasoningOutputTokens: 32,
+            },
+          },
         },
         {
           runId: 'run-trickster',
@@ -383,6 +394,19 @@ describe('Naetia Council shell', () => {
     useCouncilUiStore.setState({ activeSessionId: 'session-outcome' });
 
     renderApp();
+
+    const architectCard = await screen.findByRole('article', {
+      name: 'Architect',
+    });
+    const modelMetrics = await within(architectCard).findByRole('region', {
+      name: 'Mesures du modèle',
+    });
+    expect(modelMetrics).toHaveTextContent('Codex CLI · gpt-proof');
+    expect(modelMetrics).toHaveTextContent('Durée12,4 s');
+    expect(modelMetrics).toHaveTextContent('Entrée1 240');
+    expect(modelMetrics).toHaveTextContent('Cache800');
+    expect(modelMetrics).toHaveTextContent('Sortie180');
+    expect(modelMetrics).toHaveTextContent('Raisonnement32');
 
     const architectLoot = await screen.findByRole('article', {
       name: 'Fragment Architect',

@@ -6,7 +6,7 @@ Naetia Council transforme une quête confuse en décision navigable grâce à pl
 
 ## Première porte
 
-Cette première expédition couvre les Orbites 0 à 5.2 :
+Cette première expédition couvre les Orbites 0 à 5.3 :
 
 - un workspace pnpm TypeScript strict ;
 - une interface React/Vite qui vérifie la disponibilité de The Assembly ;
@@ -24,6 +24,8 @@ Cette première expédition couvre les Orbites 0 à 5.2 :
 - un Return Point qui réunit décision, objection ouverte, condition de révision et prochain petit geste.
 - un Port local qui liste les huit sessions les plus récentes et permet d’en reprendre explicitement une.
 - une révision qui prépare une nouvelle session liée sans modifier la décision source ni convoquer automatiquement les agents.
+- une seconde délibération Codex qui reçoit explicitement D1 et l’intention humaine dans trois processus distincts ;
+- la durée et les compteurs JSONL par voix, visibles puis restaurés après redémarrage.
 
 Le parcours local Port → Quest → Assembly → Loot → Forge → Return fonctionne avec le faux modèle déterministe comme avec Codex CLI.
 
@@ -95,9 +97,9 @@ export CODEX_HOME=/chemin/vers/.codex
 pnpm dev
 ```
 
-Chaque carte correspond alors à un processus agent et à une invocation `codex exec` distincte. Architect, Trickster et Guardian reçoivent la même quête mais leurs propres définition, perspective et instructions. The Assembly appelle Codex directement, sans shell, avec le prompt sur stdin, un répertoire temporaire vide, un sandbox `read-only`, la recherche web désactivée et un environnement réduit à `CODEX_HOME`. L’authentification ChatGPT existante du CLI reste locale ; aucune clé n’est transmise à l’interface ou dans l’IPC.
+Chaque carte correspond alors à un processus agent et à une invocation `codex exec` distincte. Architect, Trickster et Guardian reçoivent la même quête mais leurs propres définition, perspective et instructions. Pour une révision, The Assembly dérive aussi D1, son objection, sa condition de révision, son dernier geste et l’intention humaine ; le prompt demande à chaque voix d’indiquer ce qu’elle conserve, change ou conteste. The Assembly appelle Codex directement, sans shell, avec le prompt sur stdin, un répertoire temporaire vide, un sandbox `read-only`, la recherche web désactivée et un environnement réduit à `CODEX_HOME`. L’authentification ChatGPT existante du CLI reste locale ; aucune clé n’est transmise à l’interface ou dans l’IPC.
 
-`CODEX_MODEL` est facultatif : absent, Codex utilise son modèle par défaut. `CODEX_RUN_TIMEOUT_MS` vaut 180 secondes par défaut et `CODEX_REVEAL_DELAY_MS` contrôle l’apparition progressive dans les cartes. Codex CLI émet actuellement le message final plutôt que des deltas de texte natifs ; The Assembly révèle donc ce résultat par fragments après réception. La durée et, lorsqu’ils sont fournis par le CLI, les tokens d’entrée, de cache, de sortie et de raisonnement sont journalisés avec la contribution.
+`CODEX_MODEL` est facultatif : absent, Codex utilise son modèle par défaut. `CODEX_RUN_TIMEOUT_MS` vaut 180 secondes par défaut et `CODEX_REVEAL_DELAY_MS` contrôle l’apparition progressive dans les cartes. Codex CLI émet actuellement le message final plutôt que des deltas de texte natifs ; The Assembly révèle donc ce résultat par fragments après réception. La durée s’arrête dès la réception du résultat CLI et exclut cette révélation locale. Lorsqu’ils sont fournis, les tokens d’entrée, de cache, de sortie et de raisonnement sont journalisés avec la contribution puis affichés séparément ; aucun total ambigu ni coût monétaire n’est inventé. Si l’usage est absent, l’interface le dit explicitement.
 
 `ASSEMBLY_PORT`, `ASSEMBLY_DB_PATH` et `FAKE_MODEL_DELAY_MS` sont facultatifs. Les chemins SQLite relatifs sont résolus depuis la racine du repository, quel que soit le répertoire courant. Les valeurs de référence figurent dans `.env.example`; exportez-les dans le shell avant `pnpm dev` pour les modifier. The Assembly reste volontairement lié à `127.0.0.1`.
 

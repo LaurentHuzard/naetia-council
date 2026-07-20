@@ -3,12 +3,14 @@ import {
   decisionRevisionSchema,
   decisionSchema,
   fragmentSchema,
+  modelExecutionSchema,
   returnPointSchema,
   sessionIndexSchema,
   type CouncilEventMessage,
   type DecisionMessage,
   type DecisionRevisionMessage,
   type FragmentMessage,
+  type ModelExecutionMessage,
   type ReturnPointMessage,
   type SessionSummaryMessage,
 } from '@naetia/assembly-protocol';
@@ -41,6 +43,7 @@ export type AgentRunSnapshot = {
   startedAt?: string;
   completedAt?: string;
   error?: { code: string; message: string };
+  modelExecution?: ModelExecutionMessage;
 };
 
 export type CouncilSessionSnapshot = {
@@ -352,6 +355,7 @@ function parseSessionSnapshot(value: unknown): CouncilSessionSnapshot {
 
   return {
     ...(value as CouncilSessionSnapshot),
+    runs: (value.runs as unknown[]).map(parseAgentRunSnapshot),
     fragments: (value.fragments as unknown[]).map((fragment) =>
       fragmentSchema.parse(fragment),
     ),
@@ -381,6 +385,18 @@ function parseSessionSnapshot(value: unknown): CouncilSessionSnapshot {
   };
 }
 
+function parseAgentRunSnapshot(value: unknown): AgentRunSnapshot {
+  if (!isAgentRunSnapshot(value)) {
+    throw new Error('The Assembly a renvoyé un run invalide.');
+  }
+  return {
+    ...value,
+    ...(value.modelExecution === undefined
+      ? {}
+      : { modelExecution: modelExecutionSchema.parse(value.modelExecution) }),
+  };
+}
+
 function isAgentRunSnapshot(value: unknown): value is AgentRunSnapshot {
   if (!isRecord(value)) {
     return false;
@@ -396,7 +412,9 @@ function isAgentRunSnapshot(value: unknown): value is AgentRunSnapshot {
     typeof value.status === 'string' &&
     agentRunStatuses.includes(value.status) &&
     (value.pid === undefined || typeof value.pid === 'number') &&
-    typeof value.contribution === 'string'
+    typeof value.contribution === 'string' &&
+    (value.modelExecution === undefined ||
+      modelExecutionSchema.safeParse(value.modelExecution).success)
   );
 }
 

@@ -17,11 +17,16 @@ sans créer de nouvelle session.
 Une révision prépare désormais une session enfant liée à la décision source.
 La première décision reste immuable, la nouvelle session commence sans run et
 trois nouveaux agents ne démarrent qu’après une convocation humaine explicite.
+Une révision Codex réelle a confirmé que chaque voix reçoit D1 et l’intention,
+puis conserve, change ou conteste explicitement la décision précédente. Durée,
+entrée, cache, sortie et raisonnement sont visibles par carte et restaurés depuis
+le journal sans relancer les processus.
 
 ## Prochaine étape
 
-Prouver avec Codex CLI que le contexte dérivé d’une révision produit une seconde
-délibération utile et distincte, sans affaiblir la provenance. Le détail opérationnel courant vit dans
+Transformer CHALLENGE en contrepoint humain ciblé sans reconvoquer les trois
+voix, sans effacer le fragment source et sans consommer de tokens avant une
+confirmation explicite. Le détail opérationnel courant vit dans
 [`docs/mission-control.md`](docs/mission-control.md).
 
 ## Limites structurantes
