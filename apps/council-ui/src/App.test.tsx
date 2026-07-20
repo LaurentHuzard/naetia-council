@@ -428,6 +428,464 @@ describe('Naetia Council shell', () => {
     expect(screen.queryByRole('checkbox', { name: /Guardian/ })).not.toBeInTheDocument();
   });
 
+  it('lists recent sessions and resumes a created session without creating another one', async () => {
+    const createdSnapshot: CouncilSessionSnapshot = {
+      sessionId: 'session-created',
+      quest: {
+        questId: 'quest-created',
+        title: 'Reprendre une quête créée',
+      },
+      status: 'created',
+      createdAt: '2026-07-20T00:00:00.000Z',
+      eventCursor: 3,
+      runs: [],
+      fragments: [],
+      events: [],
+    };
+    const runningSnapshot: CouncilSessionSnapshot = {
+      ...createdSnapshot,
+      status: 'running',
+      eventCursor: 8,
+      runs: [
+        {
+          runId: 'run-created-architect',
+          sessionId: 'session-created',
+          agentId: 'architect',
+          agentDefinitionId: 'architect.v1',
+          status: 'running',
+          pid: 5101,
+          contribution: '',
+        },
+      ],
+    };
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === '/api/health') {
+          return new Response(JSON.stringify({ status: 'ok' }), { status: 200 });
+        }
+        if (path === '/api/sessions?limit=8') {
+          return new Response(
+            JSON.stringify({
+              sessions: [
+                {
+                  sessionId: 'session-created',
+                  quest: {
+                    questId: 'quest-created',
+                    title: 'Reprendre une quête créée',
+                  },
+                  status: 'created',
+                  createdAt: '2026-07-20T00:00:00.000Z',
+                  lastActivityAt: '2026-07-20T00:00:00.000Z',
+                  eventCursor: 3,
+                  hasDecision: false,
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (path === '/api/sessions/session-created' && init?.method === undefined) {
+          return new Response(JSON.stringify(createdSnapshot), { status: 200 });
+        }
+        if (
+          path === '/api/sessions/session-created/convene' &&
+          init?.method === 'POST'
+        ) {
+          return new Response(JSON.stringify(runningSnapshot), { status: 202 });
+        }
+        return new Response(null, { status: 404 });
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderApp();
+
+    const recentItem = (await screen.findByText('Reprendre une quête créée'))
+      .closest('li');
+    expect(recentItem).not.toBeNull();
+    fireEvent.click(
+      within(recentItem!).getByRole('button', { name: 'Reprendre' }),
+    );
+
+    expect(
+      await screen.findByDisplayValue('Reprendre une quête créée'),
+    ).toBeDisabled();
+    expect(localStorage.getItem('naetia-council-ui')).toContain(
+      'session-created',
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Convoquer le Council' }),
+    );
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/sessions/session-created/convene',
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      '/api/sessions',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('keeps the Port open when a listed session disappears', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === '/api/health') {
+        return new Response(JSON.stringify({ status: 'ok' }), { status: 200 });
+      }
+      if (path === '/api/sessions?limit=8') {
+        return new Response(
+          JSON.stringify({
+            sessions: [
+              {
+                sessionId: 'session-missing',
+                quest: { questId: 'quest-missing', title: 'Quête disparue' },
+                status: 'completed',
+                createdAt: '2026-07-20T00:00:00.000Z',
+                lastActivityAt: '2026-07-20T00:05:00.000Z',
+                eventCursor: 12,
+                hasDecision: false,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (path === '/api/sessions/session-missing') {
+        return new Response(
+          JSON.stringify({
+            error: 'SESSION_NOT_FOUND',
+            message: 'Council session not found',
+          }),
+          { status: 404, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderApp();
+    const missingItem = (await screen.findByText('Quête disparue')).closest('li');
+    fireEvent.click(
+      within(missingItem!).getByRole('button', { name: 'Reprendre' }),
+    );
+
+    expect(
+      await screen.findByText('Cette quête n’a pas pu être reprise. Le Port reste ouvert.'),
+    ).toBeVisible();
+    expect(useCouncilUiStore.getState().activeSessionId).toBeNull();
+    expect(localStorage.getItem('naetia-council-ui')).toBeNull();
+    expect(screen.getByDisplayValue('Ouvrir la porte du royaume')).toBeEnabled();
+  });
+
+  it('clears Forge drafts when the human resumes another session', async () => {
+    const sessionSnapshot = (
+      sessionId: string,
+      title: string,
+      suffix: string,
+    ): CouncilSessionSnapshot => ({
+      sessionId,
+      quest: { questId: `quest-${suffix}`, title },
+      status: 'completed',
+      createdAt: '2026-07-20T00:00:00.000Z',
+      eventCursor: suffix === 'a' ? 20 : 21,
+      runs: [
+        {
+          runId: `run-${suffix}`,
+          sessionId,
+          agentId: 'architect',
+          agentDefinitionId: 'architect.v1',
+          status: 'completed',
+          contribution: `Contribution ${suffix}`,
+        },
+      ],
+      fragments: [
+        {
+          id: `fragment-${suffix}`,
+          sessionId,
+          contributionId: `contribution-${suffix}`,
+          runId: `run-${suffix}`,
+          content: `Contribution ${suffix}`,
+          status: 'kept',
+          createdAt: '2026-07-20T00:05:00.000Z',
+          updatedAt: '2026-07-20T00:05:00.000Z',
+        },
+      ],
+      events: [],
+    });
+    const sessionA = sessionSnapshot('session-a', 'Quête A', 'a');
+    const sessionB = sessionSnapshot('session-b', 'Quête B', 'b');
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === '/api/health') {
+        return new Response(JSON.stringify({ status: 'ok' }), { status: 200 });
+      }
+      if (path === '/api/sessions?limit=8') {
+        return new Response(
+          JSON.stringify({
+            sessions: [sessionB, sessionA].map((session) => ({
+              sessionId: session.sessionId,
+              quest: session.quest,
+              status: session.status,
+              createdAt: session.createdAt,
+              lastActivityAt: '2026-07-20T00:05:00.000Z',
+              eventCursor: session.eventCursor,
+              hasDecision: false,
+            })),
+          }),
+          { status: 200 },
+        );
+      }
+      if (path === '/api/sessions/session-a') {
+        return new Response(JSON.stringify(sessionA), { status: 200 });
+      }
+      if (path === '/api/sessions/session-b') {
+        return new Response(JSON.stringify(sessionB), { status: 200 });
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    useCouncilUiStore.setState({ activeSessionId: 'session-a' });
+
+    renderApp();
+    fireEvent.change(await screen.findByLabelText('Décision'), {
+      target: { value: 'Brouillon de la quête A' },
+    });
+    const sessionBItem = screen.getByText('Quête B').closest('li');
+    fireEvent.click(
+      within(sessionBItem!).getByRole('button', { name: 'Reprendre' }),
+    );
+
+    expect(await screen.findByDisplayValue('Quête B')).toBeDisabled();
+    expect(screen.getByLabelText('Décision')).toHaveValue('');
+    expect(localStorage.getItem('naetia-council-ui')).toContain('session-b');
+  });
+
+  it('prepares a linked revision, preserves its source and convenes only after confirmation', async () => {
+    const createdAt = '2026-07-20T01:00:00.000Z';
+    const sourceDecision = {
+      id: 'decision-source',
+      sessionId: 'session-source',
+      statement: 'Conserver la décision source.',
+      rationale: 'Sa provenance doit rester lisible.',
+      reviewCondition: 'Réviser si une contrainte apparaît.',
+      sources: [
+        {
+          fragmentId: 'fragment-source',
+          contributionId: 'contribution-source',
+          runId: 'run-source',
+          agentDefinitionId: 'architect.v1',
+        },
+      ],
+      createdAt,
+    };
+    const sourceReturnPoint = {
+      sessionId: 'session-source',
+      decisionId: 'decision-source',
+      summary: 'Conserver la décision source.',
+      nextSmallStep: 'Observer pendant une journée.',
+      updatedAt: createdAt,
+    };
+    const sourceSnapshot: CouncilSessionSnapshot = {
+      sessionId: 'session-source',
+      quest: { questId: 'quest-source', title: 'Choisir une porte durable' },
+      status: 'completed',
+      createdAt,
+      eventCursor: 30,
+      runs: [
+        {
+          runId: 'run-source',
+          sessionId: 'session-source',
+          agentId: 'architect',
+          agentDefinitionId: 'architect.v1',
+          status: 'completed',
+          contribution: 'Conserver une trace vérifiable.',
+        },
+      ],
+      fragments: [
+        {
+          id: 'fragment-source',
+          sessionId: 'session-source',
+          contributionId: 'contribution-source',
+          runId: 'run-source',
+          content: 'Conserver une trace vérifiable.',
+          status: 'kept',
+          createdAt,
+          updatedAt: createdAt,
+        },
+      ],
+      decision: sourceDecision,
+      returnPoint: sourceReturnPoint,
+      events: [],
+    };
+    const intent = 'Un délai plus court change le prochain geste.';
+    const revisionSnapshot: CouncilSessionSnapshot = {
+      sessionId: 'session-revision',
+      quest: sourceSnapshot.quest,
+      status: 'created',
+      createdAt: '2026-07-20T01:10:00.000Z',
+      eventCursor: 31,
+      runs: [],
+      fragments: [],
+      revisionOf: {
+        sourceSessionId: sourceSnapshot.sessionId,
+        sourceDecisionId: sourceDecision.id,
+        intent,
+      },
+      previousDecision: {
+        sessionId: sourceSnapshot.sessionId,
+        decision: sourceDecision,
+        returnPoint: sourceReturnPoint,
+      },
+      events: [],
+    };
+    const runningRevision: CouncilSessionSnapshot = {
+      ...revisionSnapshot,
+      status: 'running',
+      eventCursor: 38,
+      runs: (['architect', 'trickster', 'guardian'] as const).map(
+        (agentId, index) => ({
+          runId: `run-revision-${agentId}`,
+          sessionId: revisionSnapshot.sessionId,
+          agentId,
+          agentDefinitionId: `${agentId}.v1`,
+          status: 'running' as const,
+          pid: 6100 + index,
+          contribution: '',
+        }),
+      ),
+    };
+    let revisionAttempts = 0;
+    let revisionCreated = false;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === '/api/health') {
+          return new Response(JSON.stringify({ status: 'ok' }), { status: 200 });
+        }
+        if (path === '/api/sessions?limit=8') {
+          const summaries = [
+            ...(revisionCreated
+              ? [
+                  {
+                    sessionId: revisionSnapshot.sessionId,
+                    quest: revisionSnapshot.quest,
+                    status: revisionSnapshot.status,
+                    createdAt: revisionSnapshot.createdAt,
+                    lastActivityAt: revisionSnapshot.createdAt,
+                    eventCursor: revisionSnapshot.eventCursor,
+                    revisionOf: revisionSnapshot.revisionOf,
+                    hasDecision: false,
+                  },
+                ]
+              : []),
+            {
+              sessionId: sourceSnapshot.sessionId,
+              quest: sourceSnapshot.quest,
+              status: sourceSnapshot.status,
+              createdAt: sourceSnapshot.createdAt,
+              lastActivityAt: createdAt,
+              eventCursor: sourceSnapshot.eventCursor,
+              hasDecision: true,
+              nextSmallStep: sourceReturnPoint.nextSmallStep,
+            },
+          ];
+          return new Response(JSON.stringify({ sessions: summaries }), {
+            status: 200,
+          });
+        }
+        if (path === '/api/sessions/session-source') {
+          return new Response(JSON.stringify(sourceSnapshot), { status: 200 });
+        }
+        if (
+          path === '/api/sessions/session-source/revisions' &&
+          init?.method === 'POST'
+        ) {
+          expect(JSON.parse(String(init.body))).toEqual({
+            decisionId: sourceDecision.id,
+            intent,
+          });
+          revisionAttempts += 1;
+          if (revisionAttempts === 1) {
+            return new Response(
+              JSON.stringify({
+                error: 'REVISION_ALREADY_STARTED',
+                message: 'Conflit simulé, la décision source reste intacte.',
+              }),
+              { status: 409, headers: { 'content-type': 'application/json' } },
+            );
+          }
+          revisionCreated = true;
+          return new Response(JSON.stringify(revisionSnapshot), { status: 201 });
+        }
+        if (
+          path === '/api/sessions/session-revision/convene' &&
+          init?.method === 'POST'
+        ) {
+          return new Response(JSON.stringify(runningRevision), { status: 202 });
+        }
+        if (path === '/api/sessions/session-revision') {
+          return new Response(JSON.stringify(revisionSnapshot), { status: 200 });
+        }
+        return new Response(null, { status: 404 });
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    useCouncilUiStore.setState({ activeSessionId: sourceSnapshot.sessionId });
+
+    renderApp();
+    expect(
+      await screen.findByRole('heading', { name: sourceDecision.statement }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Préparer une révision' }),
+    );
+    fireEvent.change(screen.getByLabelText('Ce qui a changé'), {
+      target: { value: intent },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Créer la session de révision' }),
+    );
+
+    expect(
+      await screen.findByText('Conflit simulé, la décision source reste intacte.'),
+    ).toBeVisible();
+    expect(screen.getByLabelText('Ce qui a changé')).toHaveValue(intent);
+    expect(screen.getByText(sourceDecision.rationale)).toBeVisible();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Créer la session de révision' }),
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Ce qui a changé' }),
+    ).toBeVisible();
+    expect(screen.getByText(intent)).toBeVisible();
+    const previous = screen.getByLabelText('Décision précédente');
+    expect(within(previous).getByText(sourceDecision.statement)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Convoquer le Council' })).toBeEnabled();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      '/api/sessions/session-revision/convene',
+      expect.anything(),
+    );
+    expect(localStorage.getItem('naetia-council-ui')).toContain(
+      'session-revision',
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Convoquer le Council' }),
+    );
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/sessions/session-revision/convene',
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+    expect(await screen.findByText('Processus Node #6100')).toBeVisible();
+  });
+
   it('opens SSE after the snapshot and ignores a repeated cursor', async () => {
     const baseRun = {
       runId: 'run-architect',

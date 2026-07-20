@@ -27,6 +27,52 @@ export const sessionStatusSchema = z.enum(["draft", "convening", "active", "comp
 export const contributionStatusSchema = z.enum(["streaming", "completed"]);
 export const fragmentStatusSchema = z.enum(["available", "kept", "challenged", "composted"]);
 export const modelAdapterSchema = z.enum(["fake", "codex-cli"]);
+export const sessionSummaryStatusSchema = z.enum(["created", "running", "completed"]);
+
+export const decisionRevisionSchema = z
+  .object({
+    sourceSessionId: identifierSchema,
+    sourceDecisionId: identifierSchema,
+    intent: z.string().trim().min(1).max(2_000),
+  })
+  .strict();
+
+const sessionSummaryBaseShape = {
+  sessionId: identifierSchema,
+  quest: z
+    .object({
+      questId: identifierSchema,
+      title: z.string().trim().min(1).max(200),
+    })
+    .strict(),
+  status: sessionSummaryStatusSchema,
+  createdAt: timestampSchema,
+  lastActivityAt: timestampSchema,
+  eventCursor: z.number().int().nonnegative(),
+  revisionOf: decisionRevisionSchema.optional(),
+};
+
+export const sessionSummarySchema = z.discriminatedUnion("hasDecision", [
+  z
+    .object({
+      ...sessionSummaryBaseShape,
+      hasDecision: z.literal(false),
+    })
+    .strict(),
+  z
+    .object({
+      ...sessionSummaryBaseShape,
+      hasDecision: z.literal(true),
+      nextSmallStep: z.string().trim().min(1).max(1_000),
+    })
+    .strict(),
+]);
+
+export const sessionIndexSchema = z
+  .object({
+    sessions: z.array(sessionSummarySchema).max(50),
+  })
+  .strict();
 
 export const modelUsageSchema = z
   .object({
@@ -62,6 +108,7 @@ export const councilSessionSchema = z
     status: sessionStatusSchema,
     createdAt: timestampSchema,
     updatedAt: timestampSchema,
+    revisionOf: decisionRevisionSchema.optional(),
   })
   .strict();
 
@@ -368,6 +415,15 @@ export const assemblyCommandSchema = z.discriminatedUnion("type", [
       nextSmallStep: z.string().trim().min(1).max(1_000),
     })
     .strict(),
+  z
+    .object({
+      ...commandEnvelopeShape,
+      type: z.literal("decision.revise"),
+      sessionId: identifierSchema,
+      decisionId: identifierSchema,
+      intent: z.string().trim().min(1).max(2_000),
+    })
+    .strict(),
 ]);
 
 const fakeModelOptionsSchema = z
@@ -471,7 +527,10 @@ export type ContributionMessage = z.infer<typeof contributionSchema>;
 export type FragmentMessage = z.infer<typeof fragmentSchema>;
 export type DecisionMessage = z.infer<typeof decisionSchema>;
 export type DecisionSourceMessage = z.infer<typeof decisionSourceSchema>;
+export type DecisionRevisionMessage = z.infer<typeof decisionRevisionSchema>;
 export type ReturnPointMessage = z.infer<typeof returnPointSchema>;
+export type SessionSummaryMessage = z.infer<typeof sessionSummarySchema>;
+export type SessionIndexMessage = z.infer<typeof sessionIndexSchema>;
 export type ModelAdapterMessage = z.infer<typeof modelAdapterSchema>;
 export type ModelUsageMessage = z.infer<typeof modelUsageSchema>;
 export type ModelExecutionMessage = z.infer<typeof modelExecutionSchema>;

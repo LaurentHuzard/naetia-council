@@ -53,12 +53,19 @@ export interface Quest {
   readonly createdAt: string;
 }
 
+export interface DecisionRevision {
+  readonly sourceSessionId: SessionId;
+  readonly sourceDecisionId: DecisionId;
+  readonly intent: string;
+}
+
 export interface CouncilSession {
   readonly id: SessionId;
   readonly questId: QuestId;
   readonly status: CouncilSessionStatus;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly revisionOf?: DecisionRevision;
 }
 
 export interface AgentDefinition {

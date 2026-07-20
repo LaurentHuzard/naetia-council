@@ -3,6 +3,7 @@ import type { CouncilSessionController } from '../../queries/useCouncilSession';
 import { ForgePanel } from '../forge/ForgePanel';
 import { LootPanel } from '../loot/LootPanel';
 import { ReturnPanel } from '../return/ReturnPanel';
+import { RevisionContextPanel } from '../return/RevisionContextPanel';
 import { AgentCard } from './AgentCard';
 import { firstCouncilAgents } from './agent-definitions';
 import { QuestPanel } from './QuestPanel';
@@ -15,7 +16,16 @@ type CouncilBoardProps = {
 export function CouncilBoard({ health, councilSession }: CouncilBoardProps) {
   return (
     <div id="main-content">
-      <QuestPanel health={health} councilSession={councilSession} />
+      <QuestPanel
+        key={`quest:${councilSession.activeSessionId ?? 'new'}`}
+        health={health}
+        councilSession={councilSession}
+      />
+      <RevisionContextPanel
+        session={councilSession.session}
+        navigationLocked={councilSession.isNavigationLocked}
+        onResume={councilSession.resumeSession}
+      />
       <section className="council-grid" aria-label="Membres du Council">
         {firstCouncilAgents.map((agent) => (
           <AgentCardSlot
@@ -32,12 +42,19 @@ export function CouncilBoard({ health, councilSession }: CouncilBoardProps) {
         onAction={councilSession.actOnFragment}
       />
       <ForgePanel
+        key={`forge:${councilSession.session?.sessionId ?? 'none'}`}
         session={councilSession.session}
         isForging={councilSession.isForging}
         error={councilSession.forgeError}
         onForge={councilSession.forgeDecision}
       />
-      <ReturnPanel session={councilSession.session} />
+      <ReturnPanel
+        key={`return:${councilSession.session?.decision?.id ?? 'none'}`}
+        session={councilSession.session}
+        isPreparingRevision={councilSession.isPreparingRevision}
+        revisionError={councilSession.revisionError}
+        onPrepareRevision={councilSession.prepareRevision}
+      />
     </div>
   );
 }

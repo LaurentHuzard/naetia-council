@@ -187,6 +187,126 @@ describe.sequential("Council outcomes", () => {
       }),
     );
   });
+
+  it("starts an idempotent child session without changing the source decision", async () => {
+    const orchestrator = trackedOrchestrator();
+    const created = orchestrator.createSession({
+      title: "Réviser une porte sans effacer la première",
+      context: "La provenance initiale doit rester intacte.",
+    });
+    expect(() =>
+      orchestrator.createRevision(created.sessionId, {
+        decisionId: "decision-missing",
+        intent: "Réviser trop tôt",
+      }),
+    ).toThrowError(
+      expect.objectContaining<Partial<CouncilCommandError>>({
+        code: "REVISION_NOT_READY",
+      }),
+    );
+
+    orchestrator.convene(created.sessionId, {
+      behaviorByAgent: {
+        architect: { latencyMs: 1 },
+        trickster: { latencyMs: 1 },
+        guardian: { latencyMs: 1 },
+      },
+    });
+    const completed = await waitForSession(
+      orchestrator,
+      created.sessionId,
+      (session) => session.status === "completed",
+    );
+    const sourceFragment = completed.fragments[0]!;
+    orchestrator.keepFragment(sourceFragment.id);
+    const forged = orchestrator.forgeDecision(created.sessionId, {
+      fragmentIds: [sourceFragment.id],
+      statement: "Ouvrir prudemment la première porte.",
+      rationale: "La première preuve reste suffisante pour maintenant.",
+      objection: "Le contexte peut évoluer.",
+      reviewCondition: "Réviser lorsqu’une contrainte apparaît.",
+      nextSmallStep: "Observer la porte pendant une journée.",
+    })!;
+    const sourceDecisionId = forged.decision!.id;
+    const sourceBeforeRevision = structuredClone(forged);
+    const intent = "Une contrainte de temps rend le premier geste trop large.";
+
+    expect(() =>
+      orchestrator.createRevision(created.sessionId, {
+        decisionId: "another-decision",
+        intent,
+      }),
+    ).toThrowError(
+      expect.objectContaining<Partial<CouncilCommandError>>({
+        code: "REVISION_SOURCE_CONFLICT",
+      }),
+    );
+
+    const revision = orchestrator.createRevision(created.sessionId, {
+      decisionId: sourceDecisionId,
+      intent,
+    })!;
+    expect(orchestrator.getSession(created.sessionId)).toEqual(
+      sourceBeforeRevision,
+    );
+    expect(revision).toMatchObject({
+      quest: forged.quest,
+      status: "created",
+      revisionOf: {
+        sourceSessionId: created.sessionId,
+        sourceDecisionId,
+        intent,
+      },
+      previousDecision: {
+        sessionId: created.sessionId,
+        decision: forged.decision,
+        returnPoint: forged.returnPoint,
+      },
+      runs: [],
+      fragments: [],
+    });
+    expect(revision.events.map((event) => event.type)).toEqual([
+      "session.created",
+    ]);
+
+    const retry = orchestrator.createRevision(created.sessionId, {
+      decisionId: sourceDecisionId,
+      intent,
+    });
+    expect(retry).toEqual(revision);
+    expect(() =>
+      orchestrator.createRevision(created.sessionId, {
+        decisionId: sourceDecisionId,
+        intent: "Une autre branche concurrente.",
+      }),
+    ).toThrowError(
+      expect.objectContaining<Partial<CouncilCommandError>>({
+        code: "REVISION_ALREADY_STARTED",
+      }),
+    );
+
+    orchestrator.convene(revision.sessionId, {
+      behaviorByAgent: {
+        architect: { latencyMs: 1 },
+        trickster: { latencyMs: 1 },
+        guardian: { latencyMs: 1 },
+      },
+    });
+    const revisionCompleted = await waitForSession(
+      orchestrator,
+      revision.sessionId,
+      (session) => session.status === "completed",
+    );
+    expect(revisionCompleted.runs).toHaveLength(3);
+    expect(
+      revisionCompleted.runs.every(
+        (run) => !forged.runs.some((sourceRun) => sourceRun.runId === run.runId),
+      ),
+    ).toBe(true);
+    expect(orchestrator.getSession(created.sessionId)).toEqual(
+      sourceBeforeRevision,
+    );
+  });
 });
 
 function trackedOrchestrator(): CouncilOrchestrator {

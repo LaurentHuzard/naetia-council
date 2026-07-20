@@ -14,28 +14,41 @@ export function QuestPanel({ health, councilSession }: QuestPanelProps) {
     'Le royaume est scellé. Trouver et ouvrir la porte sans déclencher les anciens verrous ni trahir les pactes en vigueur.',
   );
   const hasSession = councilSession.session !== null;
+  const hasCreatedSession = hasSession && councilSession.session!.runs.length === 0;
   const hasDecision = councilSession.session?.decision !== undefined;
   const isBusy =
     health.isFetching ||
+    councilSession.isSessionLoading ||
     councilSession.isConvening ||
     councilSession.hasActiveRuns ||
-    (hasSession && !hasDecision);
+    (councilSession.hasSelectedSession && !hasSession) ||
+    (hasSession && !hasCreatedSession && !hasDecision) ||
+    hasDecision;
   const buttonLabel = getPrimaryButtonLabel({
+    isSessionLoading: councilSession.isSessionLoading,
     isConvening: councilSession.isConvening,
     hasActiveRuns: councilSession.hasActiveRuns,
     hasDecision,
     hasSession,
+    hasCreatedSession,
+    hasSessionError: councilSession.sessionError !== null,
     isCheckingHealth: health.isFetching,
     isHealthy: health.isSuccess,
   });
 
   const handlePrimaryAction = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (hasDecision) {
-      councilSession.newQuest();
+    if (
+      councilSession.hasSelectedSession &&
+      (!hasSession || councilSession.sessionError !== null)
+    ) {
       return;
     }
     if (health.isSuccess) {
+      if (hasCreatedSession) {
+        councilSession.convene(undefined);
+        return;
+      }
       councilSession.convene({
         title: title.trim(),
         ...(context.trim().length === 0 ? {} : { context: context.trim() }),
@@ -49,16 +62,20 @@ export function QuestPanel({ health, councilSession }: QuestPanelProps) {
   return (
     <section className="quest-panel" aria-labelledby="quest-title">
       <div className="section-kicker">Quête</div>
-      <h1 id="quest-title">Quel passage veux-tu ouvrir ?</h1>
+      <h2 id="quest-title">Quel passage veux-tu ouvrir ?</h2>
       <form className="quest-form" onSubmit={handlePrimaryAction}>
         <label>
           <span>Titre de la quête</span>
           <input
             name="quest-title"
-            value={councilSession.session?.quest.title ?? title}
+            value={
+              councilSession.hasSelectedSession
+                ? (councilSession.session?.quest.title ?? '')
+                : title
+            }
             maxLength={200}
             required
-            disabled={hasSession}
+            disabled={councilSession.hasSelectedSession}
             onChange={(event) => setTitle(event.target.value)}
           />
         </label>
@@ -66,10 +83,14 @@ export function QuestPanel({ health, councilSession }: QuestPanelProps) {
           <span>Contexte facultatif</span>
           <textarea
             name="quest-context"
-            value={councilSession.session?.quest.context ?? context}
+            value={
+              councilSession.hasSelectedSession
+                ? (councilSession.session?.quest.context ?? '')
+                : context
+            }
             maxLength={10_000}
             rows={3}
-            disabled={hasSession}
+            disabled={councilSession.hasSelectedSession}
             onChange={(event) => setContext(event.target.value)}
           />
         </label>
@@ -88,8 +109,13 @@ export function QuestPanel({ health, councilSession }: QuestPanelProps) {
           relancée.
         </p>
       ) : null}
-      {councilSession.sessionError !== null ||
-      councilSession.cancelError !== null ||
+      {councilSession.sessionError !== null ? (
+        <p className="health-error" role="alert">
+          Cette session n’est plus disponible. Reprenez une autre quête depuis
+          le Port ou ouvrez une nouvelle quête.
+        </p>
+      ) : null}
+      {councilSession.cancelError !== null ||
       councilSession.signalError !== null ? (
         <p className="health-error" role="alert">
           Le dernier signal de session a échoué. Le snapshot autoritaire reste
@@ -101,16 +127,22 @@ export function QuestPanel({ health, councilSession }: QuestPanelProps) {
 }
 
 function getPrimaryButtonLabel(state: Readonly<{
+  isSessionLoading: boolean;
   isConvening: boolean;
   hasActiveRuns: boolean;
   hasDecision: boolean;
   hasSession: boolean;
+  hasCreatedSession: boolean;
+  hasSessionError: boolean;
   isCheckingHealth: boolean;
   isHealthy: boolean;
 }>): string {
+  if (state.isSessionLoading) return 'Reprise…';
+  if (state.hasSessionError) return 'Session indisponible';
   if (state.isConvening) return 'Convocation…';
   if (state.hasActiveRuns) return 'Council convoqué';
-  if (state.hasDecision) return 'Nouvelle quête';
+  if (state.hasDecision) return 'Décision forgée';
+  if (state.hasCreatedSession) return 'Convoquer le Council';
   if (state.hasSession) return 'Council terminé — choisir le butin';
   if (state.isCheckingHealth) return 'Vérification…';
   return state.isHealthy ? 'Convoquer le Council' : 'Vérifier The Assembly';

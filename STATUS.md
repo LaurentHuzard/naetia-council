@@ -5,23 +5,29 @@ Dernière mise à jour : 2026-07-20
 ## Statut
 
 Active alpha. La Porte initiale est ouverte et le parcours vertical complet est
-fonctionnel en local. La prochaine tranche est l'Orbite 5.1 : un Port minimal
-pour retrouver et reprendre les sessions récentes.
+fonctionnel en local. Le Port retrouve et reprend maintenant les sessions
+récentes sans les recréer. Une révision ouvre une session enfant liée sans
+modifier la décision source et sans auto-convoquer les agents.
 
 ## Preuves actuelles
 
 - typecheck, lint et build réussis sur les quatre projets du workspace ;
-- 68 tests réussis ;
+- 84 tests réussis ;
 - trois processus et trois appels Codex CLI distincts vérifiés ;
 - décision, provenance et Return Point restaurés après rafraîchissement puis
   redémarrage du daemon ;
+- index du Port identique avant et après redémarrage, reprise explicite vérifiée
+  sans nouvelle création de session ;
+- D1 strictement inchangée, D2 issue de trois nouveaux processus et lien de
+  révision identique après redémarrage ;
 - aucune erreur ni aucun warning dans la console Chromium du parcours vérifié.
 
 ## Risques ouverts
 
 - le mode réel consomme trois appels et doit rester opt-in ;
 - CHALLENGE ne déclenche pas encore de réponse contradictoire ;
-- le cycle de révision d'une décision n'est pas encore modélisé ;
+- une décision ne possède qu’une révision directe ; les branches concurrentes sont refusées ;
+- le Port est limité aux huit sessions les plus récentes et n’a ni recherche ni pagination ;
 - la contribution Codex est révélée après réponse plutôt que streamée nativement.
 
 Source opérationnelle détaillée :
