@@ -2,15 +2,15 @@
 
 ## Current objective
 
-**Stabiliser la Porte ouverte.** Le parcours vertical est livré ; la prochaine incertitude est la reprise multi-session depuis un Port minimal, sans alourdir la Forge ni introduire une seconde source de vérité.
+Prouver avec Codex CLI que le contexte dérivé de D1 et de l’intention humaine produit une seconde délibération utile, tout en conservant le faux modèle comme chemin reproductible sans tokens.
 
 ## Dispatch
 
-- **Navigateur** — lecture du domaine, du protocole, du journal et des invariants de replay ; preuve attendue : carte exacte des projections et transitions minimales.
-- **Ingénieur de The Assembly / Capitaine** — `assembly-protocol`, orchestrateur, API et tests daemon ; preuve attendue : événements atomiques, commandes validées et reconstruction SQLite.
-- **Pilote d’interface / Capitaine** — API cliente, mutations TanStack, composants Loot, Forge et Return, puis styles ; dépendance : snapshot serveur stabilisé.
-- **Gardien** — matrice d’échec, tests du parcours critique et reprise ; preuve attendue : doublons, transitions invalides, provenance et redémarrage couverts.
-- **Trickster technique** — challenger l’UX et retirer tout état ou endpoint non indispensable.
+- **Navigateur** — arbitrer nouvelle décision ou nouvelle session ; résultat : préserver l’invariant une décision et un triplet de runs par session.
+- **Ingénieur de The Assembly / Capitaine** — lien durable de révision, création idempotente et contexte agent dérivé ; preuve attendue : parent strictement inchangé et replay identique.
+- **Pilote d’interface / Capitaine** — intention humaine, aperçu read-only de la décision source et convocation séparée ; dépendance : snapshot enfant stabilisé.
+- **Gardien** — 400/404/409, retry, verrou SQLite, isolation SSE, redémarrage et absence d’auto-convocation.
+- **Trickster technique** — refuser rounds, historique éditable, nouvelle table, routeur, copie client de D1 et auto-convocation.
 
 ## Current state
 
@@ -18,22 +18,31 @@ Le mode `codex-cli` est fonctionnel de bout en bout. Une convocation lance trois
 
 Le parcours Quest → Assembly → Loot → Forge → Return est maintenant implémenté. Chaque contribution terminée produit un fragment durable ; les commandes KEEP, CHALLENGE et COMPOST passent par The Assembly ; la Forge accepte uniquement des fragments conservés et construit leur provenance ; décision et Return Point sont journalisés atomiquement. Le journal append-only reste l’unique stockage, sans migration SQLite ni infrastructure supplémentaire.
 
+Le Port est dérivé directement des projections rejouées. Son résumé ne transporte ni événements, ni contributions, ni fragments : la reprise recharge le snapshot complet avant d’ouvrir le SSE existant. Zustand reste limité à l’identifiant de navigation ; TanStack Query possède l’index serveur. Une session disparue produit une erreur visible et ne pollue pas le stockage local.
+
+Le modèle de révision retenu est une session enfant liée à la décision source. Elle commence en état créé, sans run, et ne convoque le Council qu’après un second geste humain explicite. La session parente ne reçoit aucun événement et reste immuable.
+
 ## Last completed orbit
 
-**Orbite 5 — Construire la Porte du Royaume.** La session navigateur réelle `f1ef3da4-98b8-4a25-84b7-66f4b81f3670` a lancé trois appels Codex CLI dans trois processus distincts (`387611`, `387613`, `387614`). Les trois contributions ont produit trois fragments. Trickster a été challengé, Architect conservé et Guardian composté. Une décision a ensuite été forgée depuis Architect avec objection, condition de révision, prochain petit geste et provenance. Après rafraîchissement puis redémarrage complet du daemon sur le même SQLite, le Return Point a été reconstruit sans relancer les agents.
+**Orbite 5.2 — Réviser sans écraser.** Depuis D1, l’humain saisit ce qui a changé et crée une session enfant liée, sans run. Un second clic convoque trois nouveaux processus, puis D2 est forgée avec ses propres fragments et sa propre provenance. Le backlink rouvre D1 strictement inchangée. Le lien D2 → D1, les deux Return Points et l’index restent identiques après redémarrage sur le même SQLite.
 
 ## Commands verified
 
 - `rtk run pnpm typecheck` — réussi sur les quatre projets du workspace.
 - `rtk pnpm lint` — réussi, zéro warning.
 - `rtk pnpm build` — réussi sur les quatre projets du workspace.
-- `rtk run pnpm test` — 68 tests réussis : 49 daemon, 5 UI, 4 domaine et 10 protocole.
+- `rtk run pnpm test` — 84 tests réussis : 55 daemon, 9 UI, 4 domaine et 16 protocole.
 - Tests de reprise — fragments historiques complétés sans doublon, dispositions, décision, Return Point et provenance identiques après redémarrage.
 - Test SQLite verrouillé — ni décision ni Return Point partiel ; la même commande réussit après libération du verrou.
 - Playwright + Codex CLI — trois cartes terminées et trois PID distincts ; KEEP, CHALLENGE, COMPOST et Forge exécutés dans Chromium.
 - Rafraîchissement navigateur — décision, objection, provenance et prochain geste restaurés depuis le snapshot autoritaire.
 - Redémarrage réel — même SQLite, `eventCursor: 53`, Return Point restauré et `GET /health` revenu à `modelAdapter: codex-cli`.
 - Console Chromium — zéro erreur et zéro warning avant redémarrage ; affichage mobile sans débordement horizontal (`scrollWidth: 375`, `clientWidth: 375`).
+- Index du Port — vide, limite stricte, ordre par activité durable, résumé forgé et replay identique couverts par les tests API et de redémarrage.
+- Reprise navigateur — deux sessions réelles au faux modèle, ordre récent correct, aucune création pendant la reprise, Forge et Return Point restaurés, zéro erreur ou warning React.
+- Révision navigateur — création enfant sans `/convene`, puis trois nouveaux PID (`138321`, `138322`, `138323`), D2 forgée et D1 rouverte intacte.
+- Redémarrage de révision — index JSON strictement identique avant/après avec `revisionOf`, D1 à `eventCursor: 35` et D2 à `eventCursor: 102`.
+- Mobile révision — zéro débordement horizontal (`scrollWidth: 390`, `clientWidth: 390`) et console finale sans erreur ni warning.
 
 ## Decisions
 
@@ -49,6 +58,13 @@ Le parcours Quest → Assembly → Loot → Forge → Return est maintenant impl
 - La provenance de la décision est dérivée côté serveur depuis les fragments et les runs ; l’interface ne peut pas l’inventer.
 - `decision.forged` et `return_point.updated` sont atomiques. Une première décision verrouille ses sources pour préserver leur sens lors de la reprise.
 - Un fragment correspond à la contribution complète d’un agent pour cette porte. Aucun découpage éditorial ou package supplémentaire n’est introduit avant un besoin observé.
+- L’index du Port est une projection du journal, pas un nouveau modèle persistant. Son curseur durable sert au tri et son contrat reste compact.
+- Le Port reste visible sans routeur. La sélection est explicite et la navigation est verrouillée pendant les mutations ou les runs actifs.
+- Une reprise valide d’abord le snapshot ; l’identifiant local n’est modifié qu’après ce succès.
+- Une révision est une nouvelle session liée, pas un second round. `session.created` porte `revisionOf` et aucune migration SQLite n’est nécessaire.
+- Une décision possède au plus une révision directe : le retry avec la même intention retrouve l’enfant, une intention concurrente reçoit `REVISION_ALREADY_STARTED`.
+- Le contexte des nouveaux agents est dérivé côté Assembly depuis la quête, l’intention, D1 et son Return Point. Le navigateur ne copie jamais la décision source.
+- La création et la convocation sont deux gestes humains distincts ; aucun processus ni token n’est consommé par la préparation seule.
 
 ## Known risks
 
@@ -59,13 +75,17 @@ Le parcours Quest → Assembly → Loot → Forge → Return est maintenant impl
 - Les tests qui lancent un exécutable enfant nécessitent un environnement autorisant `spawn`; le sandbox restreint de l’agent retourne `EPERM`, alors que la suite hors sandbox et le runtime réel réussissent.
 - Le démarrage parallèle de `pnpm dev` peut afficher brièvement The Assembly indisponible pendant que le daemon compile ; la reconnexion reprend ensuite automatiquement.
 - CHALLENGE enregistre une disposition durable mais ne relance pas encore l’agent avec une objection humaine.
-- Une seule décision immuable est autorisée par session ; le cycle de révision n’est pas encore modélisé.
+- Une seule décision immuable reste autorisée par session ; les branches concurrentes de révision sont volontairement refusées.
+- Le Port ne présente que les huit sessions les plus récentes, sans pagination, recherche, suppression ni URL partageable.
+- Chaque rafale SSE invalide encore le snapshot actif et l’index compact ; ce trafic local reste acceptable pour huit lignes mais devra être mesuré avant d’élargir le Port.
+- Le faux modèle prouve l’orchestration mais n’utilise pas son contexte dans le texte rendu ; la qualité de la seconde délibération reste à vérifier avec Codex CLI.
+- Un ancien binaire ne peut pas relire un journal qui contient le nouveau champ strict `revisionOf`.
 
 ## Open questions
 
-- Quel index minimal de sessions permet de revenir à une ancienne quête sans créer un dashboard lourd ?
-- Une révision doit-elle créer une nouvelle décision liée à la précédente ou une nouvelle session du Council ?
+- Le contexte de révision suffit-il à produire trois contributions réellement nouvelles avec Codex CLI ?
+- Une future branche concurrente doit-elle être une nouvelle quête ou rester interdite ?
 
 ## Next orbit
 
-**Orbite 5.1 — Ouvrir le Port.** Ajouter un index local minimal des sessions récentes et permettre de reprendre une session depuis l’interface, avec snapshot SQLite autoritaire et sans routeur ni nouvelle dépendance tant qu’ils ne sont pas nécessaires.
+**Orbite 5.3 — Prouver la seconde délibération.** Exécuter une révision avec Codex CLI, vérifier que les trois voix prennent en compte D1 et l’intention humaine, puis rendre durée et consommation visibles sans modifier le domaine.

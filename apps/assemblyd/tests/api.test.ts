@@ -23,6 +23,76 @@ describe.sequential("assemblyd HTTP API", () => {
     });
   });
 
+  it("lists recent sessions by durable activity without snapshot cargo", async () => {
+    const app = trackedApp();
+    const empty = await app.inject({ method: "GET", url: "/sessions" });
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json()).toEqual({ sessions: [] });
+
+    const firstCreation = await app.inject({
+      method: "POST",
+      url: "/sessions",
+      payload: {
+        quest: { title: "Première quête", context: "Ne pas indexer ce contexte" },
+      },
+    });
+    const first = firstCreation.json<{ sessionId: string }>();
+    const secondCreation = await app.inject({
+      method: "POST",
+      url: "/sessions",
+      payload: { quest: { title: "Deuxième quête" } },
+    });
+    const second = secondCreation.json<{ sessionId: string }>();
+
+    const createdIndex = await app.inject({ method: "GET", url: "/sessions" });
+    const createdSessions = createdIndex.json<SessionIndexResponse>().sessions;
+    expect(createdSessions.map(({ sessionId }) => sessionId)).toEqual([
+      second.sessionId,
+      first.sessionId,
+    ]);
+    expect(createdSessions[1]).toMatchObject({
+      quest: { title: "Première quête" },
+      status: "created",
+      hasDecision: false,
+    });
+    expect(createdSessions[1]?.quest).not.toHaveProperty("context");
+    expect(createdSessions[1]).not.toHaveProperty("events");
+    expect(createdSessions[1]).not.toHaveProperty("runs");
+
+    const convening = await app.inject({
+      method: "POST",
+      url: `/sessions/${first.sessionId}/convene`,
+    });
+    expect(convening.statusCode).toBe(202);
+    const recent = await app.inject({ method: "GET", url: "/sessions?limit=1" });
+    expect(recent.json<SessionIndexResponse>().sessions).toEqual([
+      expect.objectContaining({
+        sessionId: first.sessionId,
+        status: "running",
+        hasDecision: false,
+      }),
+    ]);
+
+    const repeatedRead = await app.inject({ method: "GET", url: "/sessions" });
+    const repeatedAgain = await app.inject({ method: "GET", url: "/sessions" });
+    expect(repeatedAgain.json()).toEqual(repeatedRead.json());
+  });
+
+  it("rejects invalid session index queries", async () => {
+    const app = trackedApp();
+    for (const url of [
+      "/sessions?limit=0",
+      "/sessions?limit=51",
+      "/sessions?limit=1.5",
+      "/sessions?limit=nope",
+      "/sessions?unexpected=true",
+    ]) {
+      const response = await app.inject({ method: "GET", url });
+      expect(response.statusCode, url).toBe(400);
+      expect(response.json()).toMatchObject({ error: "INVALID_REQUEST" });
+    }
+  });
+
   it("creates, convenes and observes a Council session", async () => {
     const app = trackedApp();
     const creation = await app.inject({
@@ -180,6 +250,120 @@ describe.sequential("assemblyd HTTP API", () => {
     });
   });
 
+  it("creates a linked revision without convening or changing its source", async () => {
+    const app = trackedApp();
+    const missing = await app.inject({
+      method: "POST",
+      url: `/sessions/${randomUUID()}/revisions`,
+      payload: { decisionId: randomUUID(), intent: "Réviser." },
+    });
+    expect(missing.statusCode).toBe(404);
+
+    const creation = await app.inject({
+      method: "POST",
+      url: "/sessions",
+      payload: { quest: { title: "Préparer une seconde délibération" } },
+    });
+    const created = creation.json<{ sessionId: string }>();
+    const invalid = await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/revisions`,
+      payload: { decisionId: "not-a-uuid", intent: "   " },
+    });
+    expect(invalid.statusCode).toBe(400);
+    const tooEarly = await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/revisions`,
+      payload: { decisionId: randomUUID(), intent: "Le contexte a changé." },
+    });
+    expect(tooEarly.statusCode).toBe(409);
+    expect(tooEarly.json()).toMatchObject({ error: "REVISION_NOT_READY" });
+
+    await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/convene`,
+    });
+    const completed = await waitForCompletedSession(app, created.sessionId);
+    const sourceFragment = completed.fragments[0]!;
+    await app.inject({
+      method: "POST",
+      url: `/fragments/${sourceFragment.id}/keep`,
+    });
+    const forge = await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/forge`,
+      payload: {
+        fragmentIds: [sourceFragment.id],
+        statement: "Garder la première décision intacte.",
+        rationale: "Elle reste la trace de la première délibération.",
+        nextSmallStep: "Observer le changement.",
+      },
+    });
+    const sourceBefore = forge.json<SessionResponse>();
+    const decisionId = sourceBefore.decision!.id;
+    const intent = "Un nouveau risque demande un Council distinct.";
+
+    const stale = await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/revisions`,
+      payload: { decisionId: randomUUID(), intent },
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toMatchObject({ error: "REVISION_SOURCE_CONFLICT" });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/revisions`,
+      payload: { decisionId, intent },
+    });
+    expect(response.statusCode).toBe(201);
+    const revision = response.json<SessionResponse>();
+    expect(revision).toMatchObject({
+      status: "created",
+      revisionOf: {
+        sourceSessionId: created.sessionId,
+        sourceDecisionId: decisionId,
+        intent,
+      },
+      previousDecision: {
+        sessionId: created.sessionId,
+        decision: sourceBefore.decision,
+        returnPoint: sourceBefore.returnPoint,
+      },
+      runs: [],
+      fragments: [],
+    });
+    const sourceAfter = await app.inject({
+      method: "GET",
+      url: `/sessions/${created.sessionId}`,
+    });
+    expect(sourceAfter.json()).toEqual(sourceBefore);
+
+    const retry = await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/revisions`,
+      payload: { decisionId, intent },
+    });
+    expect(retry.json()).toEqual(revision);
+    const conflicting = await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/revisions`,
+      payload: { decisionId, intent: "Une branche différente." },
+    });
+    expect(conflicting.statusCode).toBe(409);
+    expect(conflicting.json()).toMatchObject({
+      error: "REVISION_ALREADY_STARTED",
+    });
+
+    const index = await app.inject({ method: "GET", url: "/sessions" });
+    expect(index.json<SessionIndexResponse>().sessions[0]).toMatchObject({
+      sessionId: revision.sessionId,
+      status: "created",
+      hasDecision: false,
+      revisionOf: revision.revisionOf,
+    });
+  });
+
   it("returns clear errors for invalid and missing fragments", async () => {
     const app = trackedApp();
     const invalid = await app.inject({
@@ -224,6 +408,8 @@ async function waitForCompletedSession(
 }
 
 interface SessionResponse {
+  readonly sessionId: string;
+  readonly status: string;
   readonly eventCursor: number;
   readonly runs: Array<{ status: string }>;
   readonly fragments: Array<{
@@ -239,4 +425,32 @@ interface SessionResponse {
     openObjection?: string;
     nextSmallStep: string;
   };
+  readonly revisionOf?: {
+    sourceSessionId: string;
+    sourceDecisionId: string;
+    intent: string;
+  };
+  readonly previousDecision?: {
+    sessionId: string;
+    decision: NonNullable<SessionResponse["decision"]>;
+    returnPoint: NonNullable<SessionResponse["returnPoint"]>;
+  };
+}
+
+interface SessionIndexResponse {
+  readonly sessions: Array<{
+    readonly sessionId: string;
+    readonly quest: { readonly questId: string; readonly title: string };
+    readonly status: "created" | "running" | "completed";
+    readonly createdAt: string;
+    readonly lastActivityAt: string;
+    readonly eventCursor: number;
+    readonly hasDecision: boolean;
+    readonly nextSmallStep?: string;
+    readonly revisionOf?: {
+      readonly sourceSessionId: string;
+      readonly sourceDecisionId: string;
+      readonly intent: string;
+    };
+  }>;
 }

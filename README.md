@@ -6,7 +6,7 @@ Naetia Council transforme une quête confuse en décision navigable grâce à pl
 
 ## Première porte
 
-Cette première expédition couvre les Orbites 0 à 5 :
+Cette première expédition couvre les Orbites 0 à 5.2 :
 
 - un workspace pnpm TypeScript strict ;
 - une interface React/Vite qui vérifie la disponibilité de The Assembly ;
@@ -22,8 +22,10 @@ Cette première expédition couvre les Orbites 0 à 5 :
 - les dispositions humaines KEEP, CHALLENGE et COMPOST ;
 - une Forge qui accepte uniquement des fragments conservés et calcule leur provenance côté serveur ;
 - un Return Point qui réunit décision, objection ouverte, condition de révision et prochain petit geste.
+- un Port local qui liste les huit sessions les plus récentes et permet d’en reprendre explicitement une.
+- une révision qui prépare une nouvelle session liée sans modifier la décision source ni convoquer automatiquement les agents.
 
-Le parcours local Quest → Assembly → Loot → Forge → Return fonctionne avec le faux modèle déterministe comme avec Codex CLI.
+Le parcours local Port → Quest → Assembly → Loot → Forge → Return fonctionne avec le faux modèle déterministe comme avec Codex CLI.
 
 ## Architecture locale
 
@@ -59,14 +61,17 @@ L’interface est servie par Vite sur `http://127.0.0.1:5173` et relaie `/api` v
 
 ## Parcours local
 
-1. Décrivez une quête, puis convoquez le Council.
-2. Attendez les contributions séparées d’Architect, Trickster et Guardian.
-3. Classez chaque fragment avec KEEP, CHALLENGE ou COMPOST.
-4. Sélectionnez au moins un fragment conservé dans la Forge.
-5. Écrivez la décision, sa raison, l’objection à garder, la condition de révision et le prochain petit geste.
-6. Forge affiche le Return Point et verrouille la provenance de cette première décision.
+1. Depuis le Port, commencez une nouvelle quête ou reprenez explicitement une session récente.
+2. Décrivez une quête, puis convoquez le Council.
+3. Attendez les contributions séparées d’Architect, Trickster et Guardian.
+4. Classez chaque fragment avec KEEP, CHALLENGE ou COMPOST.
+5. Sélectionnez au moins un fragment conservé dans la Forge.
+6. Écrivez la décision, sa raison, l’objection à garder, la condition de révision et le prochain petit geste.
+7. Forge affiche le Return Point et verrouille la provenance de cette première décision.
+8. Si le contexte change, préparez une révision en décrivant ce qui a changé.
+9. Vérifiez la décision précédente en lecture seule, puis convoquez explicitement le nouveau Council.
 
-CHALLENGE conserve l’objection humaine dans le journal, mais ne relance pas encore l’agent. Une session accepte actuellement une seule décision forgée ; ses sources deviennent immuables après la Forge.
+CHALLENGE conserve l’objection humaine dans le journal, mais ne relance pas encore l’agent. Une session accepte une seule décision forgée ; ses sources deviennent immuables après la Forge. Une révision ouvre donc une session enfant avec trois nouveaux runs. Un retry identique retrouve le même enfant et une intention concurrente est refusée.
 
 ## Commandes
 
@@ -96,17 +101,20 @@ Chaque carte correspond alors à un processus agent et à une invocation `codex 
 
 `ASSEMBLY_PORT`, `ASSEMBLY_DB_PATH` et `FAKE_MODEL_DELAY_MS` sont facultatifs. Les chemins SQLite relatifs sont résolus depuis la racine du repository, quel que soit le répertoire courant. Les valeurs de référence figurent dans `.env.example`; exportez-les dans le shell avant `pnpm dev` pour les modifier. The Assembly reste volontairement lié à `127.0.0.1`.
 
-L’interface conserve uniquement l’identifiant de session dans un stockage local versionné. Le journal du daemon demeure la source de vérité : un rafraîchissement ou un redémarrage reconstruit la même session sans relancer les agents. Après le snapshot, `EventSource` écoute les nouveautés ; la séquence SQLite sert de curseur et `Last-Event-ID` permet le rattrapage automatique.
+L’interface conserve uniquement l’identifiant de session dans un stockage local versionné. Le Port charge un résumé compact avec `GET /sessions?limit=8`, puis la reprise recharge le snapshot complet avant d’ouvrir son flux SSE. Le journal du daemon demeure la source de vérité : un rafraîchissement ou un redémarrage reconstruit la même session sans relancer les agents. Après le snapshot, `EventSource` écoute les nouveautés ; la séquence SQLite sert de curseur et `Last-Event-ID` permet le rattrapage automatique.
 
 Une contribution terminée et son fragment sont écrits dans la même transaction. KEEP, CHALLENGE et COMPOST sont idempotents lorsque la même commande est rejouée. La Forge refuse les fragments non conservés, dérive la provenance depuis les runs et écrit atomiquement `decision.forged` avec `return_point.updated`. Les anciens journaux contenant des contributions terminées sont complétés avec leurs fragments lors de la reconstruction, sans doublon au redémarrage suivant.
+
+`POST /sessions/:sessionId/revisions` crée une session liée en état `created`. Le lien durable contient la décision source et l’intention humaine ; le texte de D1 reste une projection de sa session et n’est jamais copié par le navigateur. The Assembly compose le contexte des nouveaux agents au moment de la convocation. La création de la révision ne démarre aucun processus.
 
 SQLite utilise par défaut `data/naetia-council.sqlite`. Le fichier est créé au premier démarrage et ignoré par Git. Un verrou de propriété empêche deux daemons vivants d’écrire dans le même journal. Chaque événement est validé par Zod avant écriture et après lecture ; son identifiant est unique et l’ordre durable vient de la séquence SQLite. Les identifiants Codex restent exclusivement dans `CODEX_HOME`, côté daemon. `.env.example` ne contient aucun secret.
 
 ## Limites actuelles
 
-- l’interface ouvre directement la quête active ; le Port et la liste des sessions récentes restent à construire ;
+- le Port affiche les huit sessions les plus récentes, sans pagination, recherche, suppression ni URLs partageables ;
 - CHALLENGE classe durablement un fragment mais ne convoque pas encore une réponse contradictoire ;
-- une décision forgée est immuable et unique dans la session ; un cycle explicite de révision reste à concevoir ;
+- une décision forgée reste immuable et unique dans sa session ; une décision ne possède qu’une révision directe et les branches concurrentes ne sont pas encore modélisées ;
+- le downgrade vers un ancien binaire n’est pas supporté après l’écriture d’un lien `revisionOf` ;
 - le streaming Codex est une révélation locale post-réponse, pas encore un streaming natif token par token ;
 - le mode Codex consomme des tokens et dépend de la disponibilité du CLI et de sa session locale ; le faux modèle reste le mode par défaut des tests ;
 - chaque rafale SSE provoque encore une relecture coalescée du snapshot complet ;

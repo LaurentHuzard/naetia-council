@@ -57,6 +57,46 @@ describe.sequential("Assembly daemon restart", () => {
     });
     expect(forge.statusCode).toBe(200);
     const beforeRestart = forge.json<SessionResponse>();
+    const revisionIntent = "Une nouvelle contrainte mérite un second Council.";
+    const revisionResponse = await firstApp.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/revisions`,
+      payload: {
+        decisionId: beforeRestart.decision!.id,
+        intent: revisionIntent,
+      },
+    });
+    expect(revisionResponse.statusCode).toBe(201);
+    const revisionBeforeRestart = revisionResponse.json<SessionResponse>();
+    const unchangedSource = await firstApp.inject({
+      method: "GET",
+      url: `/sessions/${created.sessionId}`,
+    });
+    expect(unchangedSource.json()).toEqual(beforeRestart);
+    const indexBeforeRestart = await firstApp.inject({
+      method: "GET",
+      url: "/sessions",
+    });
+    expect(indexBeforeRestart.json()).toEqual({
+      sessions: [
+        expect.objectContaining({
+          sessionId: revisionBeforeRestart.sessionId,
+          status: "created",
+          hasDecision: false,
+          revisionOf: {
+            sourceSessionId: created.sessionId,
+            sourceDecisionId: beforeRestart.decision!.id,
+            intent: revisionIntent,
+          },
+        }),
+        expect.objectContaining({
+          sessionId: created.sessionId,
+          status: "completed",
+          hasDecision: true,
+          nextSmallStep: "Relire la décision demain.",
+        }),
+      ],
+    });
     await firstApp.close();
     applications.splice(applications.indexOf(firstApp), 1);
 
@@ -94,6 +134,27 @@ describe.sequential("Assembly daemon restart", () => {
     expect(afterRestart.decision).toEqual(beforeRestart.decision);
     expect(afterRestart.returnPoint).toEqual(beforeRestart.returnPoint);
     expect(afterRestart.events).toEqual(beforeRestart.events);
+    const revisionAfterRestartResponse = await secondApp.inject({
+      method: "GET",
+      url: `/sessions/${revisionBeforeRestart.sessionId}`,
+    });
+    const revisionAfterRestart =
+      revisionAfterRestartResponse.json<SessionResponse>();
+    expect(revisionAfterRestart).toEqual(revisionBeforeRestart);
+    const revisionRetry = await secondApp.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/revisions`,
+      payload: {
+        decisionId: beforeRestart.decision!.id,
+        intent: revisionIntent,
+      },
+    });
+    expect(revisionRetry.json()).toEqual(revisionBeforeRestart);
+    const indexAfterRestart = await secondApp.inject({
+      method: "GET",
+      url: "/sessions",
+    });
+    expect(indexAfterRestart.json()).toEqual(indexBeforeRestart.json());
   });
 
   it("returns 503 without a partial convocation when SQLite is locked", async () => {
@@ -218,6 +279,79 @@ describe.sequential("Assembly daemon restart", () => {
     });
   });
 
+  it("never creates a partial revision while SQLite is locked", async () => {
+    const databasePath = temporaryDatabasePath();
+    const app = trackedApp({
+      databasePath,
+      fakeModelDelayMs: 2,
+      databaseBusyTimeoutMs: 10,
+    });
+    const creation = await app.inject({
+      method: "POST",
+      url: "/sessions",
+      payload: { quest: { title: "Réviser atomiquement" } },
+    });
+    const created = creation.json<{ sessionId: string }>();
+    await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/convene`,
+    });
+    const completed = await waitForCompletedSession(app, created.sessionId);
+    const fragment = completed.fragments[0]!;
+    await app.inject({
+      method: "POST",
+      url: `/fragments/${fragment.id}/keep`,
+    });
+    const forge = await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/forge`,
+      payload: {
+        fragmentIds: [fragment.id],
+        statement: "Conserver la première trace.",
+        rationale: "La révision sera une autre session.",
+        nextSmallStep: "Préparer la révision.",
+      },
+    });
+    const source = forge.json<SessionResponse>();
+    const payload = {
+      decisionId: source.decision!.id,
+      intent: "Une contrainte nouvelle demande un autre Council.",
+    };
+    const lock = new Database(databasePath);
+    const countBefore = lock
+      .prepare("SELECT COUNT(*) AS count FROM council_events")
+      .get() as Readonly<{ count: number }>;
+    lock.exec("BEGIN EXCLUSIVE");
+    try {
+      const unavailable = await app.inject({
+        method: "POST",
+        url: `/sessions/${created.sessionId}/revisions`,
+        payload,
+      });
+      expect(unavailable.statusCode).toBe(503);
+    } finally {
+      lock.exec("ROLLBACK");
+    }
+    const countAfter = lock
+      .prepare("SELECT COUNT(*) AS count FROM council_events")
+      .get() as Readonly<{ count: number }>;
+    lock.close();
+    expect(countAfter).toEqual(countBefore);
+
+    const unchangedIndex = await app.inject({ method: "GET", url: "/sessions" });
+    expect(unchangedIndex.json<{ sessions: unknown[] }>().sessions).toHaveLength(1);
+    const retry = await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/revisions`,
+      payload,
+    });
+    expect(retry.statusCode).toBe(201);
+    expect(retry.json<SessionResponse>().revisionOf).toMatchObject({
+      sourceSessionId: created.sessionId,
+      sourceDecisionId: source.decision!.id,
+    });
+  });
+
   it("persists controlled interruptions when the daemon stops mid-session", async () => {
     const databasePath = temporaryDatabasePath();
     const firstApp = trackedApp({ databasePath, fakeModelDelayMs: 100 });
@@ -303,6 +437,8 @@ describe.sequential("Assembly daemon restart", () => {
 });
 
 interface SessionResponse {
+  readonly sessionId: string;
+  readonly status: string;
   readonly quest: Readonly<{
     questId: string;
     title: string;
@@ -344,6 +480,16 @@ interface SessionResponse {
     openObjection?: string;
     nextSmallStep: string;
     updatedAt: string;
+  }>;
+  readonly revisionOf?: Readonly<{
+    sourceSessionId: string;
+    sourceDecisionId: string;
+    intent: string;
+  }>;
+  readonly previousDecision?: Readonly<{
+    sessionId: string;
+    decision: NonNullable<SessionResponse["decision"]>;
+    returnPoint: NonNullable<SessionResponse["returnPoint"]>;
   }>;
   readonly events: readonly unknown[];
 }

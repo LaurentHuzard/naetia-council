@@ -7,15 +7,21 @@ append-only qui reste la source de vérité.
 
 ## État
 
-Le parcours Quest → Assembly → Loot → Forge → Return est livré et vérifié avec
+Le parcours Port → Quest → Assembly → Loot → Forge → Return est livré et vérifié avec
 le modèle déterministe ainsi qu'avec trois invocations Codex CLI séparées. Les
 fragments, dispositions humaines, décisions, provenance et Return Points sont
-reconstruits depuis le journal après rafraîchissement ou redémarrage.
+reconstruits depuis le journal après rafraîchissement ou redémarrage. Le Port
+liste les sessions récentes depuis une projection compacte et en reprend une
+sans créer de nouvelle session.
+
+Une révision prépare désormais une session enfant liée à la décision source.
+La première décision reste immuable, la nouvelle session commence sans run et
+trois nouveaux agents ne démarrent qu’après une convocation humaine explicite.
 
 ## Prochaine étape
 
-Ouvrir un Port minimal vers les sessions récentes, sans dashboard lourd ni
-seconde source de vérité. Le détail opérationnel courant vit dans
+Prouver avec Codex CLI que le contexte dérivé d’une révision produit une seconde
+délibération utile et distincte, sans affaiblir la provenance. Le détail opérationnel courant vit dans
 [`docs/mission-control.md`](docs/mission-control.md).
 
 ## Limites structurantes
@@ -24,3 +30,5 @@ seconde source de vérité. Le détail opérationnel courant vit dans
 - faux modèle par défaut, mode Codex CLI explicitement activé ;
 - une décision immuable par session pour cette première porte ;
 - CHALLENGE conserve l'objection mais ne relance pas encore l'agent.
+- le Port est volontairement limité aux huit sessions les plus récentes.
+- une décision possède au plus une révision directe dans cette première version.

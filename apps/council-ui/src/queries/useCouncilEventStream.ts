@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { openCouncilEventSource } from '../api/council-event-source';
 import type { CouncilSessionSnapshot } from '../api/assembly';
 import { councilSessionKey } from './council-session-key';
+import { recentCouncilSessionsKey } from './useRecentCouncilSessions';
 
 export type CouncilSignalStatus =
   | 'idle'
@@ -50,10 +51,16 @@ export function useCouncilEventStream({
       try {
         do {
           refreshQueued = false;
-          await queryClient.invalidateQueries(
-            { queryKey, exact: true },
-            { cancelRefetch: false },
-          );
+          await Promise.all([
+            queryClient.invalidateQueries(
+              { queryKey, exact: true },
+              { cancelRefetch: false },
+            ),
+            queryClient.invalidateQueries({
+              queryKey: recentCouncilSessionsKey,
+              exact: true,
+            }),
+          ]);
           const refreshed =
             queryClient.getQueryData<CouncilSessionSnapshot>(queryKey);
           if (
@@ -98,6 +105,10 @@ export function useCouncilEventStream({
         setError(streamError);
         setStatus('polling');
         void queryClient.invalidateQueries({ queryKey, exact: true });
+        void queryClient.invalidateQueries({
+          queryKey: recentCouncilSessionsKey,
+          exact: true,
+        });
       },
       onEvent: ({ cursor }) => {
         if (cursor <= latestCursor) {

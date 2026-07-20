@@ -6,6 +6,8 @@ import {
   assemblyCommandSchema,
   councilEventSchema,
   parseAgentWorkerCommand,
+  sessionIndexSchema,
+  sessionSummarySchema,
 } from "../src/index.js";
 
 const occurredAt = "2026-07-19T10:00:00.000Z";
@@ -48,6 +50,36 @@ describe("council events", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("accepts a revision link on the child session creation event", () => {
+    const event = councilEventSchema.parse({
+      id: "event-revision-created",
+      type: "session.created",
+      sessionId: "session-revision",
+      occurredAt,
+      payload: {
+        quest: {
+          id: "quest-source",
+          title: "Réviser une décision",
+          createdAt: occurredAt,
+        },
+        session: {
+          id: "session-revision",
+          questId: "quest-source",
+          status: "draft",
+          createdAt: occurredAt,
+          updatedAt: occurredAt,
+          revisionOf: {
+            sourceSessionId: "session-source",
+            sourceDecisionId: "decision-source",
+            intent: "Une nouvelle contrainte est apparue.",
+          },
+        },
+      },
+    });
+
+    expect(event.type).toBe("session.created");
   });
 });
 
@@ -113,6 +145,26 @@ describe("assembly commands", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it("accepts an explicit decision revision and rejects empty intent", () => {
+    const command = assemblyCommandSchema.parse({
+      commandId: "command-revision-1",
+      type: "decision.revise",
+      sessionId: "session-source",
+      decisionId: "decision-source",
+      intent: "Le risque observé change la prochaine délibération.",
+    });
+    const emptyIntent = assemblyCommandSchema.safeParse({
+      commandId: "command-revision-2",
+      type: "decision.revise",
+      sessionId: "session-source",
+      decisionId: "decision-source",
+      intent: "   ",
+    });
+
+    expect(command.type).toBe("decision.revise");
+    expect(emptyIntent.success).toBe(false);
+  });
 });
 
 describe("Council outcomes", () => {
@@ -135,6 +187,90 @@ describe("Council outcomes", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("session index", () => {
+  it("accepts compact created and forged session summaries", () => {
+    const index = sessionIndexSchema.parse({
+      sessions: [
+        {
+          sessionId: "session-forged",
+          quest: { questId: "quest-forged", title: "Reprendre la décision" },
+          status: "completed",
+          createdAt: occurredAt,
+          lastActivityAt: "2026-07-19T10:05:00.000Z",
+          eventCursor: 42,
+          hasDecision: true,
+          nextSmallStep: "Relire le pacte demain.",
+        },
+        {
+          sessionId: "session-created",
+          quest: { questId: "quest-created", title: "Convoquer plus tard" },
+          status: "created",
+          createdAt: occurredAt,
+          lastActivityAt: occurredAt,
+          eventCursor: 1,
+          hasDecision: false,
+        },
+      ],
+    });
+
+    expect(index.sessions).toHaveLength(2);
+  });
+
+  it("requires a next step for a forged session", () => {
+    const result = sessionSummarySchema.safeParse({
+      sessionId: "session-forged",
+      quest: { questId: "quest-forged", title: "Reprendre la décision" },
+      status: "completed",
+      createdAt: occurredAt,
+      lastActivityAt: occurredAt,
+      eventCursor: 42,
+      hasDecision: true,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects snapshot cargo and unknown fields from the compact index", () => {
+    const result = sessionSummarySchema.safeParse({
+      sessionId: "session-created",
+      quest: { questId: "quest-created", title: "Convoquer plus tard" },
+      status: "created",
+      createdAt: occurredAt,
+      lastActivityAt: occurredAt,
+      eventCursor: 1,
+      hasDecision: false,
+      events: [],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a compact revision link and rejects unknown revision cargo", () => {
+    const revision = {
+      sourceSessionId: "session-source",
+      sourceDecisionId: "decision-source",
+      intent: "Une contrainte nouvelle est apparue.",
+    };
+    const summary = sessionSummarySchema.parse({
+      sessionId: "session-revision",
+      quest: { questId: "quest-source", title: "Réviser le passage" },
+      status: "created",
+      createdAt: occurredAt,
+      lastActivityAt: occurredAt,
+      eventCursor: 43,
+      revisionOf: revision,
+      hasDecision: false,
+    });
+    const invalid = sessionSummarySchema.safeParse({
+      ...summary,
+      revisionOf: { ...revision, sourceDecision: { statement: "copie" } },
+    });
+
+    expect(summary.revisionOf).toEqual(revision);
+    expect(invalid.success).toBe(false);
   });
 });
 

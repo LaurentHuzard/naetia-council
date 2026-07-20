@@ -8,7 +8,10 @@ import {
   formatSseEntry,
   resolveEventCursor,
 } from "../src/api/sse.js";
-import { CouncilOrchestrator } from "../src/orchestration/council-orchestrator.js";
+import {
+  CouncilOrchestrator,
+  type SessionSnapshot,
+} from "../src/orchestration/council-orchestrator.js";
 import type { JournalEntry } from "../src/persistence/sqlite-event-journal.js";
 
 const apps: ReturnType<typeof buildApp>[] = [];
@@ -118,4 +121,62 @@ describe.sequential("Council SSE transport", () => {
     expect(missing.statusCode).toBe(404);
     expect(missing.json()).toMatchObject({ error: "SESSION_NOT_FOUND" });
   });
+
+  it("keeps revision creation out of the source session stream", async () => {
+    const orchestrator = new CouncilOrchestrator();
+    orchestrators.push(orchestrator);
+    const source = orchestrator.createSession({ title: "Isoler la révision" });
+    orchestrator.convene(source.sessionId, {
+      behaviorByAgent: {
+        architect: { latencyMs: 1 },
+        trickster: { latencyMs: 1 },
+        guardian: { latencyMs: 1 },
+      },
+    });
+    const completed = await waitForSession(
+      orchestrator,
+      source.sessionId,
+      (session) => session.status === "completed",
+    );
+    const fragment = completed.fragments[0]!;
+    orchestrator.keepFragment(fragment.id);
+    const forged = orchestrator.forgeDecision(source.sessionId, {
+      fragmentIds: [fragment.id],
+      statement: "Préserver le signal source.",
+      rationale: "La révision possède son propre flux.",
+      nextSmallStep: "Créer la session enfant.",
+    })!;
+    const sourceEntries: JournalEntry[] = [];
+    const unsubscribe = orchestrator.onSessionEvent(
+      source.sessionId,
+      (entry) => sourceEntries.push(entry),
+    );
+
+    const revision = orchestrator.createRevision(source.sessionId, {
+      decisionId: forged.decision!.id,
+      intent: "Une nouvelle contrainte doit rester isolée.",
+    })!;
+    unsubscribe();
+
+    expect(sourceEntries).toEqual([]);
+    expect(
+      orchestrator
+        .getSessionEventsAfter(revision.sessionId, 0)
+        .map(({ event }) => event.type),
+    ).toEqual(["session.created"]);
+  });
 });
+
+async function waitForSession(
+  orchestrator: CouncilOrchestrator,
+  sessionId: string,
+  predicate: (session: SessionSnapshot) => boolean,
+): Promise<SessionSnapshot> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const session = orchestrator.getSession(sessionId);
+    if (session !== undefined && predicate(session)) return session;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+  }
+  throw new Error(`Session ${sessionId} did not reach the expected state`);
+}

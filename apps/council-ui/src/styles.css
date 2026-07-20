@@ -146,6 +146,154 @@ textarea:focus-visible {
   padding: 30px 34px 34px;
 }
 
+.port-panel {
+  margin-bottom: 24px;
+  padding: 24px 28px 26px;
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--blue);
+  border-radius: 7px;
+  background:
+    linear-gradient(120deg, rgba(17, 63, 135, 0.045), transparent 45%),
+    rgba(255, 255, 255, 0.94);
+  box-shadow: 0 1px 3px rgba(17, 29, 58, 0.035);
+}
+
+.port-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.port-heading h1 {
+  margin: 14px 0 6px;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: clamp(2rem, 3vw, 2.7rem);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+}
+
+.port-heading p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.port-new-quest,
+.port-item button,
+.port-state button {
+  min-height: 38px;
+  padding: 0 15px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: #ffffff;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.port-new-quest:disabled,
+.port-item button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.port-state {
+  margin: 20px 0 0;
+  padding: 14px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 5px;
+  color: #646d80;
+  font-size: 0.88rem;
+}
+
+.port-state--error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-color: #d8a4a8;
+  color: #943840;
+}
+
+.port-list {
+  margin: 22px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  list-style: none;
+}
+
+.port-item {
+  min-width: 0;
+  padding: 15px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.port-item--active {
+  border-color: color-mix(in srgb, var(--blue) 52%, var(--line));
+  background: #f2f6fc;
+}
+
+.port-item-copy {
+  min-width: 0;
+}
+
+.port-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  color: #747d90;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.port-item h2 {
+  margin: 7px 0 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.port-item p {
+  margin: 7px 0 0;
+  overflow: hidden;
+  color: #596378;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.port-item .port-item-revision {
+  color: var(--purple);
+  font-weight: 650;
+}
+
+.port-resume-error {
+  margin: 14px 0 0;
+  color: #963b42;
+  font-size: 0.86rem;
+}
+
 .quest-panel {
   min-height: 284px;
   padding: 29px 32px 32px;
@@ -166,7 +314,7 @@ textarea:focus-visible {
   text-transform: uppercase;
 }
 
-.quest-panel h1 {
+.quest-panel h2 {
   max-width: 920px;
   margin: 18px 0 11px;
   color: var(--ink);
@@ -844,6 +992,130 @@ textarea:focus-visible {
   font-size: 0.78rem;
 }
 
+.return-revision {
+  margin-top: 24px;
+  padding-top: 20px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.return-revision h3,
+.revision-context h2 {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.return-revision p {
+  max-width: 650px;
+  margin: 7px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.secondary-button,
+.revision-backlink,
+.revision-actions > button:first-child {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: #ffffff;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.revision-form {
+  width: min(520px, 100%);
+  display: grid;
+  gap: 12px;
+}
+
+.revision-form label,
+.revision-form label > span {
+  display: grid;
+  gap: 7px;
+}
+
+.revision-form label > span {
+  color: #525c70;
+  font-size: 0.74rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.revision-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.revision-actions .primary-button {
+  margin: 0;
+}
+
+.revision-context {
+  border-top: 4px solid var(--purple);
+  background:
+    linear-gradient(135deg, rgba(106, 69, 159, 0.05), transparent 50%),
+    #ffffff;
+}
+
+.revision-context-layout {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(320px, 1.2fr);
+  gap: 24px;
+}
+
+.revision-intent {
+  margin: 10px 0 0;
+  color: #4b5366;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.revision-source {
+  padding: 16px 18px;
+  display: grid;
+  gap: 8px;
+  border-left: 3px solid var(--purple);
+  background: #faf8fd;
+}
+
+.revision-source > span {
+  color: var(--purple);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.revision-source strong {
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 1.15rem;
+}
+
+.revision-source p,
+.revision-source small {
+  margin: 0;
+  color: #596176;
+  line-height: 1.5;
+}
+
+.revision-backlink {
+  margin-top: 18px;
+}
+
 .activity-dock {
   min-height: 66px;
   margin-top: 24px;
@@ -904,7 +1176,8 @@ textarea:focus-visible {
   }
 
   .forge-form,
-  .return-layout {
+  .return-layout,
+  .revision-context-layout {
     grid-template-columns: 1fr;
   }
 }
@@ -933,7 +1206,7 @@ textarea:focus-visible {
     padding: 24px 22px 26px;
   }
 
-  .quest-panel h1 {
+  .quest-panel h2 {
     font-size: clamp(2.15rem, 10vw, 3rem);
   }
 
@@ -991,6 +1264,21 @@ textarea:focus-visible {
     width: 100%;
   }
 
+  .return-revision {
+    flex-direction: column;
+  }
+
+  .return-revision .secondary-button,
+  .revision-form,
+  .revision-backlink {
+    width: 100%;
+  }
+
+  .revision-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
   .agent-heading,
   .agent-section,
   .agent-footer {
@@ -1006,6 +1294,33 @@ textarea:focus-visible {
   .activity-dock {
     grid-template-columns: 1fr;
     gap: 10px;
+  }
+
+  .port-panel {
+    padding: 22px 20px 24px;
+  }
+
+  .port-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .port-new-quest {
+    width: 100%;
+  }
+
+  .port-list {
+    grid-template-columns: 1fr;
+  }
+
+  .port-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .port-item h2,
+  .port-item p {
+    white-space: normal;
   }
 
 }

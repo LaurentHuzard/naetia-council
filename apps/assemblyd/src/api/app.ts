@@ -4,6 +4,7 @@ import Fastify, {
   type FastifyInstance,
   type FastifyReply,
 } from "fastify";
+import { sessionIndexSchema } from "@naetia/assembly-protocol";
 import { z } from "zod";
 
 import {
@@ -68,6 +69,19 @@ const forgeDecisionBodySchema = z
     objection: z.string().trim().min(1).max(5_000).optional(),
     reviewCondition: z.string().trim().min(1).max(2_000).optional(),
     nextSmallStep: z.string().trim().min(1).max(1_000),
+  })
+  .strict();
+
+const createRevisionBodySchema = z
+  .object({
+    decisionId: z.string().uuid(),
+    intent: z.string().trim().min(1).max(2_000),
+  })
+  .strict();
+
+const sessionIndexQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(50).default(8),
   })
   .strict();
 
@@ -140,6 +154,19 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     return reply.send(error);
   });
 
+  app.get("/sessions", async (request, reply) => {
+    const query = sessionIndexQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.code(400).send({
+        error: "INVALID_REQUEST",
+        message: "Session index limit must be an integer between 1 and 50",
+      });
+    }
+    return sessionIndexSchema.parse({
+      sessions: orchestrator.listSessions(query.data.limit),
+    });
+  });
+
   app.post("/sessions", async (request, reply) => {
     const body = createSessionBodySchema.safeParse(request.body);
     if (!body.success) {
@@ -156,6 +183,28 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
           : { context: body.data.quest.context }),
       }),
     );
+  });
+
+  app.post("/sessions/:sessionId/revisions", async (request, reply) => {
+    const params = idParamsSchema.safeParse(request.params);
+    const body = createRevisionBodySchema.safeParse(request.body);
+    if (!params.success || !body.success) {
+      return reply.code(400).send({
+        error: "INVALID_REQUEST",
+        message: "A valid source decision and revision intent are required",
+      });
+    }
+    const revision = orchestrator.createRevision(params.data.sessionId, {
+      decisionId: body.data.decisionId,
+      intent: body.data.intent,
+    });
+    if (revision === undefined) {
+      return reply.code(404).send({
+        error: "SESSION_NOT_FOUND",
+        message: "Council session not found",
+      });
+    }
+    return reply.code(201).send(revision);
   });
 
   app.post("/sessions/:sessionId/convene", async (request, reply) => {

@@ -16,9 +16,11 @@ import {
   type AgentWorkerModelOptions,
   type CouncilEventMessage,
   type DecisionMessage,
+  type DecisionRevisionMessage,
   type FragmentMessage,
   type ModelExecutionMessage,
   type ReturnPointMessage,
+  type SessionSummaryMessage,
 } from "@naetia/assembly-protocol";
 
 import {
@@ -36,6 +38,8 @@ const TERMINAL_STATUSES = new Set<AgentRunStatus>([
   "failed",
   "cancelled",
 ]);
+
+const MAX_SESSION_INDEX_SIZE = 50;
 
 const COUNCIL_AGENT_DEFINITIONS = [
   {
@@ -92,6 +96,12 @@ export interface SessionSnapshot {
   readonly eventCursor: number;
   readonly runs: readonly RunSnapshot[];
   readonly fragments: readonly FragmentMessage[];
+  readonly revisionOf?: DecisionRevisionMessage;
+  readonly previousDecision?: Readonly<{
+    sessionId: string;
+    decision: DecisionMessage;
+    returnPoint: ReturnPointMessage;
+  }>;
   readonly decision?: DecisionMessage;
   readonly returnPoint?: ReturnPointMessage;
   readonly events: readonly CouncilEventMessage[];
@@ -106,10 +116,18 @@ export interface ForgeDecisionInput {
   readonly nextSmallStep: string;
 }
 
+export interface CreateRevisionInput {
+  readonly decisionId: string;
+  readonly intent: string;
+}
+
 export type CouncilCommandErrorCode =
   | "FRAGMENT_TRANSITION_CONFLICT"
   | "DECISION_SOURCE_CONFLICT"
-  | "DECISION_ALREADY_FORGED";
+  | "DECISION_ALREADY_FORGED"
+  | "REVISION_NOT_READY"
+  | "REVISION_SOURCE_CONFLICT"
+  | "REVISION_ALREADY_STARTED";
 
 export class CouncilCommandError extends Error {
   readonly code: CouncilCommandErrorCode;
@@ -165,12 +183,14 @@ interface MutableFragmentProjection {
 interface SessionRecord {
   readonly sessionId: string;
   readonly quest: QuestSnapshot;
+  readonly questCreatedAt: string;
   readonly createdAt: string;
   readonly agentDefinitions: Map<string, AgentDefinition>;
   readonly runs: Map<string, MutableRunProjection>;
   readonly fragments: Map<string, MutableFragmentProjection>;
   readonly events: CouncilEventMessage[];
   readonly eventIds: Set<string>;
+  readonly revisionOf?: DecisionRevisionMessage;
   decision?: DecisionMessage;
   returnPoint?: ReturnPointMessage;
 }
@@ -181,6 +201,7 @@ export class CouncilOrchestrator {
   readonly #sessions = new Map<string, SessionRecord>();
   readonly #runToSession = new Map<string, string>();
   readonly #fragmentToSession = new Map<string, string>();
+  readonly #revisionByDecision = new Map<string, string>();
   readonly #persistenceFailedRuns = new Set<string>();
   readonly #publishedEvents = new EventEmitter();
   readonly #model: AgentWorkerModelOptions;
@@ -239,6 +260,77 @@ export class CouncilOrchestrator {
           status: "draft",
           createdAt: occurredAt,
           updatedAt: occurredAt,
+        },
+      },
+    });
+
+    this.#persistAndApply(event);
+    return this.#snapshot(this.#requireSession(sessionId));
+  }
+
+  createRevision(
+    sourceSessionId: string,
+    input: CreateRevisionInput,
+  ): SessionSnapshot | undefined {
+    this.#assertPersistenceAvailable();
+    const source = this.#sessions.get(sourceSessionId);
+    if (source === undefined) {
+      return undefined;
+    }
+    if (source.decision === undefined || source.returnPoint === undefined) {
+      throw new CouncilCommandError(
+        "REVISION_NOT_READY",
+        "A revision requires a forged decision and its return point",
+      );
+    }
+    if (source.decision.id !== input.decisionId) {
+      throw new CouncilCommandError(
+        "REVISION_SOURCE_CONFLICT",
+        "The requested decision is not the current decision of this session",
+      );
+    }
+
+    const intent = input.intent.trim();
+    const existingRevisionId = this.#revisionByDecision.get(source.decision.id);
+    if (existingRevisionId !== undefined) {
+      const existingRevision = this.#requireSession(existingRevisionId);
+      if (existingRevision.revisionOf?.intent === intent) {
+        return this.#snapshot(existingRevision);
+      }
+      throw new CouncilCommandError(
+        "REVISION_ALREADY_STARTED",
+        "This decision already owns a revision with another intent",
+      );
+    }
+
+    const occurredAt = new Date().toISOString();
+    const sessionId = randomUUID();
+    const revisionOf = {
+      sourceSessionId,
+      sourceDecisionId: source.decision.id,
+      intent,
+    } satisfies DecisionRevisionMessage;
+    const event = parseCouncilEvent({
+      id: randomUUID(),
+      type: "session.created",
+      sessionId,
+      occurredAt,
+      payload: {
+        quest: {
+          id: source.quest.questId,
+          title: source.quest.title,
+          ...(source.quest.context === undefined
+            ? {}
+            : { context: source.quest.context }),
+          createdAt: source.questCreatedAt,
+        },
+        session: {
+          id: sessionId,
+          questId: source.quest.questId,
+          status: "draft",
+          createdAt: occurredAt,
+          updatedAt: occurredAt,
+          revisionOf,
         },
       },
     });
@@ -316,16 +408,12 @@ export class CouncilOrchestrator {
           : this.#model;
       let liveRun: LiveRunSnapshot;
       try {
+        const quest = this.#agentQuest(session);
         liveRun = this.#processManager.spawn({
           runId,
           sessionId,
           agentDefinition: definition,
-          quest: {
-            title: session.quest.title,
-            ...(session.quest.context === undefined
-              ? {}
-              : { context: session.quest.context }),
-          },
+          quest,
           model,
           ...(behavior?.timeoutMs === undefined
             ? {}
@@ -377,6 +465,28 @@ export class CouncilOrchestrator {
     this.#assertPersistenceAvailable();
     const session = this.#sessions.get(sessionId);
     return session === undefined ? undefined : this.#snapshot(session);
+  }
+
+  listSessions(limit = 8): readonly SessionSummaryMessage[] {
+    this.#assertPersistenceAvailable();
+    if (
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > MAX_SESSION_INDEX_SIZE
+    ) {
+      throw new Error(
+        `Session index limit must be between 1 and ${String(MAX_SESSION_INDEX_SIZE)}`,
+      );
+    }
+
+    return [...this.#sessions.values()]
+      .map((session) => this.#sessionSummary(session))
+      .sort(
+        (left, right) =>
+          right.eventCursor - left.eventCursor ||
+          left.sessionId.localeCompare(right.sessionId),
+      )
+      .slice(0, limit);
   }
 
   cancelRun(runId: string): RunSnapshot | undefined {
@@ -825,6 +935,25 @@ export class CouncilOrchestrator {
       if (session.id !== event.sessionId || session.questId !== quest.id) {
         throw new Error("Session creation identities do not match the event");
       }
+      const revisionOf = session.revisionOf;
+      if (revisionOf !== undefined) {
+        const source = this.#sessions.get(revisionOf.sourceSessionId);
+        if (
+          source === undefined ||
+          source.decision === undefined ||
+          source.returnPoint === undefined ||
+          source.decision.id !== revisionOf.sourceDecisionId ||
+          quest.id !== source.quest.questId ||
+          quest.title !== source.quest.title ||
+          quest.context !== source.quest.context ||
+          quest.createdAt !== source.questCreatedAt ||
+          this.#revisionByDecision.has(revisionOf.sourceDecisionId)
+        ) {
+          throw new Error(
+            `Revision session ${event.sessionId} conflicts with its source decision`,
+          );
+        }
+      }
       this.#sessions.set(event.sessionId, {
         sessionId: event.sessionId,
         quest: {
@@ -832,13 +961,23 @@ export class CouncilOrchestrator {
           title: quest.title,
           ...(quest.context === undefined ? {} : { context: quest.context }),
         },
+        questCreatedAt: quest.createdAt,
         createdAt: session.createdAt,
         agentDefinitions: new Map(),
         runs: new Map(),
         fragments: new Map(),
         events: [event],
         eventIds: new Set([event.id]),
+        ...(revisionOf === undefined
+          ? {}
+          : { revisionOf: structuredClone(revisionOf) }),
       });
+      if (revisionOf !== undefined) {
+        this.#revisionByDecision.set(
+          revisionOf.sourceDecisionId,
+          event.sessionId,
+        );
+      }
       return;
     }
 
@@ -1127,8 +1266,52 @@ export class CouncilOrchestrator {
     }
   }
 
+  #agentQuest(
+    session: SessionRecord,
+  ): Readonly<{ title: string; context?: string }> {
+    if (session.revisionOf === undefined) {
+      return {
+        title: session.quest.title,
+        ...(session.quest.context === undefined
+          ? {}
+          : { context: session.quest.context }),
+      };
+    }
+
+    const source = this.#requireSession(session.revisionOf.sourceSessionId);
+    if (source.decision === undefined || source.returnPoint === undefined) {
+      throw new Error(
+        `Revision source ${source.sessionId} has no complete decision`,
+      );
+    }
+    const decision = source.decision;
+    const returnPoint = source.returnPoint;
+    const context = [
+      session.quest.context === undefined
+        ? undefined
+        : `Contexte initial:\n${session.quest.context}`,
+      `Intention humaine de révision:\n${session.revisionOf.intent}`,
+      `Décision précédente:\n${decision.statement}`,
+      `Raison précédente:\n${decision.rationale}`,
+      decision.objection === undefined
+        ? undefined
+        : `Objection conservée:\n${decision.objection}`,
+      decision.reviewCondition === undefined
+        ? undefined
+        : `Condition de révision:\n${decision.reviewCondition}`,
+      `Dernier petit geste:\n${returnPoint.nextSmallStep}`,
+    ]
+      .filter((block): block is string => block !== undefined)
+      .join("\n\n");
+    return { title: session.quest.title, context };
+  }
+
   #snapshot(session: SessionRecord): SessionSnapshot {
     const runs = [...session.runs.values()].map(runSnapshot);
+    const previousDecision =
+      session.revisionOf === undefined
+        ? undefined
+        : this.#previousDecision(session.revisionOf);
     return {
       sessionId: session.sessionId,
       quest: { ...session.quest },
@@ -1139,6 +1322,10 @@ export class CouncilOrchestrator {
       fragments: [...session.fragments.values()].map((projection) =>
         structuredClone(projection.fragment),
       ),
+      ...(session.revisionOf === undefined
+        ? {}
+        : { revisionOf: structuredClone(session.revisionOf) }),
+      ...(previousDecision === undefined ? {} : { previousDecision }),
       ...(session.decision === undefined
         ? {}
         : { decision: structuredClone(session.decision) }),
@@ -1149,12 +1336,65 @@ export class CouncilOrchestrator {
     };
   }
 
+  #sessionSummary(session: SessionRecord): SessionSummaryMessage {
+    const eventCursor = this.#journal.latestSequence(session.sessionId);
+    const lastActivityAt = session.events.at(-1)?.occurredAt ?? session.createdAt;
+    const base = {
+      sessionId: session.sessionId,
+      quest: {
+        questId: session.quest.questId,
+        title: session.quest.title,
+      },
+      status: sessionStatus([...session.runs.values()].map(runSnapshot)),
+      createdAt: session.createdAt,
+      lastActivityAt,
+      eventCursor,
+      ...(session.revisionOf === undefined
+        ? {}
+        : { revisionOf: structuredClone(session.revisionOf) }),
+    } as const;
+
+    if (session.decision === undefined) {
+      return { ...base, hasDecision: false };
+    }
+    if (session.returnPoint === undefined) {
+      throw new Error(
+        `Session ${session.sessionId} has a decision without a return point`,
+      );
+    }
+    return {
+      ...base,
+      hasDecision: true,
+      nextSmallStep: session.returnPoint.nextSmallStep,
+    };
+  }
+
   #requireSession(sessionId: string): SessionRecord {
     const session = this.#sessions.get(sessionId);
     if (session === undefined) {
       throw new Error(`Session ${sessionId} is missing from the journal projection`);
     }
     return session;
+  }
+
+  #previousDecision(
+    revisionOf: DecisionRevisionMessage,
+  ): SessionSnapshot["previousDecision"] {
+    const source = this.#requireSession(revisionOf.sourceSessionId);
+    if (
+      source.decision === undefined ||
+      source.returnPoint === undefined ||
+      source.decision.id !== revisionOf.sourceDecisionId
+    ) {
+      throw new Error(
+        `Revision source ${revisionOf.sourceSessionId} is incomplete`,
+      );
+    }
+    return {
+      sessionId: source.sessionId,
+      decision: structuredClone(source.decision),
+      returnPoint: structuredClone(source.returnPoint),
+    };
   }
 }
 
