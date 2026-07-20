@@ -115,6 +115,57 @@ describe.sequential("assemblyd HTTP API", () => {
     expect(observed.runs.every((run) => run.status === "completed")).toBe(true);
   });
 
+  it("accepts a Full Council selection and rejects malformed delegations", async () => {
+    const app = trackedApp();
+    const creation = await app.inject({
+      method: "POST",
+      url: "/sessions",
+      payload: { quest: { title: "Revue fondatrice" } },
+    });
+    const created = creation.json<{ sessionId: string }>();
+    const agentIds = [
+      "architect",
+      "builder",
+      "trickster",
+      "guardian",
+      "archivist",
+      "game-designer",
+      "llm-genie",
+      "inner-child",
+      "scout",
+    ];
+    const fullCouncil = await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/convene`,
+      payload: { agentIds },
+    });
+
+    expect(fullCouncil.statusCode).toBe(202);
+    expect(fullCouncil.json<{ runs: unknown[] }>().runs).toHaveLength(9);
+    expect(
+      fullCouncil.json<{ agentDefinitions: unknown[] }>().agentDefinitions,
+    ).toHaveLength(9);
+
+    for (const invalidAgentIds of [
+      [],
+      ["architect", "architect"],
+      ["oracle"],
+    ]) {
+      const another = await app.inject({
+        method: "POST",
+        url: "/sessions",
+        payload: { quest: { title: "Délégation invalide" } },
+      });
+      const response = await app.inject({
+        method: "POST",
+        url: `/sessions/${another.json<{ sessionId: string }>().sessionId}/convene`,
+        payload: { agentIds: invalidAgentIds },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ error: "INVALID_REQUEST" });
+    }
+  });
+
   it("rejects malformed serialized input", async () => {
     const app = trackedApp();
     const response = await app.inject({

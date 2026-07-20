@@ -7,12 +7,17 @@ append-only qui reste la source de vérité.
 
 ## État
 
-Le parcours Port → Quest → Assembly → Loot → Forge → Return est livré et vérifié avec
+Le parcours Port → Quest → Chamber → Delegation → Assembly → Loot → Forge → Return est livré et vérifié avec
 le modèle déterministe ainsi qu'avec trois invocations Codex CLI séparées. Les
 fragments, dispositions humaines, décisions, provenance et Return Points sont
 reconstruits depuis le journal après rafraîchissement ou redémarrage. Le Port
 liste les sessions récentes depuis une projection compacte et en reprend une
 sans créer de nouvelle session.
+
+La Chambre contient neuf membres permanents. The Assembly recommande une
+délégation explicable que l’humain peut modifier avant de confirmer ; seuls les
+membres choisis créent un run et un processus. Les définitions réellement
+convoquées sont journalisées et réutilisées pour la provenance historique.
 
 Une révision prépare désormais une session enfant liée à la décision source.
 La première décision reste immuable, la nouvelle session commence sans run et
@@ -24,9 +29,9 @@ le journal sans relancer les processus.
 
 ## Prochaine étape
 
-Transformer CHALLENGE en contrepoint humain ciblé sans reconvoquer les trois
-voix, sans effacer le fragment source et sans consommer de tokens avant une
-confirmation explicite. Le détail opérationnel courant vit dans
+Orchestrer le Full Council en cercles avec une limite de concurrence et un
+contexte progressif avant de considérer les neuf voix comme un mode terminé. Le
+détail opérationnel courant vit dans
 [`docs/mission-control.md`](docs/mission-control.md).
 
 ## Limites structurantes

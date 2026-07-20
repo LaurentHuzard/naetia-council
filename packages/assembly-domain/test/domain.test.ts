@@ -10,8 +10,19 @@ import {
 } from "../src/index.js";
 
 describe("assembly domain vocabulary", () => {
-  it("keeps the first council roles explicit", () => {
-    expect(AGENT_ROLES).toEqual(["architect", "trickster", "guardian"]);
+  it("keeps the whole council explicit", () => {
+    expect(AGENT_ROLES).toEqual([
+      "architect",
+      "builder",
+      "trickster",
+      "guardian",
+      "archivist",
+      "game-designer",
+      "llm-genie",
+      "inner-child",
+      "scout",
+    ]);
+    expect(new Set(AGENT_ROLES).size).toBe(9);
   });
 
   it("models independent cancellation states", () => {

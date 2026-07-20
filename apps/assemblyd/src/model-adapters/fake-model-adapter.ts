@@ -1,29 +1,10 @@
 import type {
-  AgentId,
   ModelAdapter,
   ModelEvent,
   ModelRequest,
 } from "./model-adapter.js";
 
 const DEFAULT_LATENCY_MS = 25;
-
-const perspectives: Readonly<Record<AgentId, readonly string[]>> = {
-  architect: [
-    "Cadre la quête autour d'un résultat observable. ",
-    "Sépare les contraintes des préférences. ",
-    "Choisis un prochain geste petit et vérifiable.",
-  ],
-  trickster: [
-    "Challenge la prémisse la plus coûteuse. ",
-    "Cherche ce qui peut être retiré sans perdre la preuve. ",
-    "Teste l'alternative la plus réversible.",
-  ],
-  guardian: [
-    "Protège l'énergie et le droit d'interrompre. ",
-    "Rends visibles les risques avant l'engagement. ",
-    "Garde une condition explicite de révision.",
-  ],
-};
 
 export class FakeModelAdapter implements ModelAdapter {
   async *stream(
@@ -35,7 +16,8 @@ export class FakeModelAdapter implements ModelAdapter {
       ? []
       : [
           `[${request.agentId}] ${request.quest.title}: `,
-          ...perspectives[request.agentId],
+          `${request.agentName} — ${request.perspective} `,
+          request.instructions,
         ];
     let content = "";
 

@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build:dependencies": "pnpm --filter @naetia/assembly-protocol build",
+    "build:dependencies": "pnpm --filter @naetia/assembly-domain --filter @naetia/assembly-protocol --filter @naetia/agent-definitions build",
     "dev": "pnpm run build:dependencies && vite --host 127.0.0.1 --port 5173",
     "build": "pnpm run build:dependencies && tsc --noEmit -p tsconfig.json && vite build",
     "lint": "eslint . --max-warnings=0",
@@ -12,6 +12,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json --pretty false"
   },
   "dependencies": {
+    "@naetia/agent-definitions": "workspace:*",
+    "@naetia/assembly-domain": "workspace:*",
     "@naetia/assembly-protocol": "workspace:*",
     "@tanstack/react-query": "^5.90.10",
     "react": "^19.0.0",

@@ -21,10 +21,34 @@ describe("FakeModelAdapter", () => {
       events.push(event);
     }
 
-    expect(events.filter((event) => event.type === "delta")).toHaveLength(4);
+    expect(events.filter((event) => event.type === "delta")).toHaveLength(3);
     expect(events.at(-1)).toMatchObject({
       type: "completed",
       content: expect.stringContaining("Choisir une direction"),
+    });
+  });
+
+  it("uses any Council definition instead of a closed role table", async () => {
+    const adapter = new FakeModelAdapter();
+    const events = [];
+
+    for await (const event of adapter.stream(
+      {
+        agentId: "inner-child",
+        agentName: "Inner Child",
+        perspective: "Simplicité, intuition et curiosité.",
+        instructions: "Pose la question naïve qui simplifie.",
+        quest: { title: "Rendre le Council accueillant" },
+        latencyMs: 0,
+      },
+      new AbortController().signal,
+    )) {
+      events.push(event);
+    }
+
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      content: expect.stringContaining("Inner Child"),
     });
   });
 

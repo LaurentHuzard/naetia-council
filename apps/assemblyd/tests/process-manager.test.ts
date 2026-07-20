@@ -25,6 +25,47 @@ afterEach(async () => {
 });
 
 describe.sequential("The Assembly process boundary", () => {
+  it("spawns processes only for the selected Council members", async () => {
+    const orchestrator = trackedOrchestrator();
+    const created = orchestrator.createSession({ title: "Explorer avec Scout" });
+    const convened = orchestrator.convene(created.sessionId, {
+      agentIds: ["scout", "architect"],
+      behavior: { latencyMs: 2 },
+    });
+
+    expect(convened?.agentDefinitions.map(({ role }) => role)).toEqual([
+      "architect",
+      "scout",
+    ]);
+    expect(convened?.runs.map(({ agentId }) => agentId)).toEqual([
+      "architect",
+      "scout",
+    ]);
+    expect(new Set(convened?.runs.map(({ pid }) => pid)).size).toBe(2);
+
+    const cursor = convened!.eventCursor;
+    const retry = orchestrator.convene(created.sessionId, {
+      agentIds: ["architect", "scout"],
+    });
+    expect(retry?.eventCursor).toBe(cursor);
+    expect(retry?.runs).toHaveLength(2);
+    expect(() =>
+      orchestrator.convene(created.sessionId, {
+        agentIds: ["architect", "guardian"],
+      }),
+    ).toThrowError(/already convened another delegation/);
+
+    const completed = await waitForSession(
+      orchestrator,
+      created.sessionId,
+      (session) => session.status === "completed",
+    );
+    expect(completed.fragments).toHaveLength(2);
+    expect(completed.runs.some(({ agentId }) => agentId === "guardian")).toBe(
+      false,
+    );
+  });
+
   it("spawns three distinct processes and receives progressive contributions", async () => {
     const orchestrator = trackedOrchestrator();
     const created = orchestrator.createSession({ title: "Ouvrir la porte" });
@@ -67,7 +108,7 @@ describe.sequential("The Assembly process boundary", () => {
     expect(
       completed.events.filter((event) => event.type === "contribution.delta")
         .length,
-    ).toBeGreaterThanOrEqual(12);
+    ).toBeGreaterThanOrEqual(9);
   });
 
   it("cancels Guardian without cancelling the other runs", async () => {

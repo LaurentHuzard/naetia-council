@@ -20,6 +20,7 @@ import {
   type ForgeCouncilDecisionInput,
   type FragmentActionInput,
 } from '../api/assembly';
+import type { AgentRoleMessage } from '@naetia/assembly-protocol';
 import { useCouncilUiStore } from '../state/council-ui-store';
 import { councilSessionKey } from './council-session-key';
 import { useCouncilEventStream } from './useCouncilEventStream';
@@ -62,18 +63,27 @@ export function useCouncilSession() {
     hasActiveRuns,
   });
 
-  const conveneMutation = useMutation({
-    mutationFn: async (quest: CreateCouncilSessionInput | undefined) => {
-      if (activeSessionId !== null) {
-        return conveneCouncilSession(activeSessionId);
-      }
-      if (quest === undefined) {
-        throw new Error('Une nouvelle quête est requise.');
-      }
+  const createMutation = useMutation({
+    mutationFn: async (quest: CreateCouncilSessionInput) => {
       const created = await createCouncilSession(quest);
       setActiveSessionId(created.sessionId);
       queryClient.setQueryData(councilSessionKey(created.sessionId), created);
-      return conveneCouncilSession(created.sessionId);
+      return created;
+    },
+    onSuccess: (snapshot) => {
+      setFreshestSnapshot(queryClient, snapshot);
+    },
+    onSettled: () => {
+      void invalidateRecentSessions(queryClient);
+    },
+  });
+
+  const conveneMutation = useMutation({
+    mutationFn: async (agentIds: readonly AgentRoleMessage[]) => {
+      if (activeSessionId === null) {
+        throw new Error('Préparez une quête avant de convoquer le Council.');
+      }
+      return conveneCouncilSession(activeSessionId, agentIds);
     },
     onSuccess: (snapshot) => {
       setFreshestSnapshot(queryClient, snapshot);
@@ -147,6 +157,7 @@ export function useCouncilSession() {
   const isNavigationLocked =
     isSessionLoading ||
     hasActiveRuns ||
+    createMutation.isPending ||
     conveneMutation.isPending ||
     cancelMutation.isPending ||
     fragmentMutation.isPending ||
@@ -155,6 +166,7 @@ export function useCouncilSession() {
     resumeMutation.isPending;
 
   const resetTransientMutations = () => {
+    createMutation.reset();
     cancelMutation.reset();
     fragmentMutation.reset();
     forgeMutation.reset();
@@ -168,9 +180,12 @@ export function useCouncilSession() {
     session: sessionQuery.data ?? null,
     sessionError: sessionQuery.error,
     isSessionLoading,
+    isCreatingSession: createMutation.isPending,
     isConvening: conveneMutation.isPending,
     hasActiveRuns,
+    createError: createMutation.error,
     conveneError: conveneMutation.error,
+    createQuest: createMutation.mutate,
     convene: conveneMutation.mutate,
     newQuest: () => {
       if (isNavigationLocked) return;

@@ -4,7 +4,6 @@ import type {
   CouncilSessionSnapshot,
   CreateCouncilRevisionInput,
 } from '../../api/assembly';
-import { firstCouncilAgents } from '../council/agent-definitions';
 
 type ReturnPanelProps = {
   session: CouncilSessionSnapshot | null;
@@ -70,9 +69,8 @@ export function ReturnPanel({
         <h3>Provenance</h3>
         <ul>
           {decision.sources.map((source) => {
-            const run = session.runs.find((candidate) => candidate.runId === source.runId);
-            const agent = firstCouncilAgents.find(
-              (candidate) => candidate.id === run?.agentId,
+            const agent = session.agentDefinitions.find(
+              (candidate) => candidate.id === source.agentDefinitionId,
             );
             return (
               <li key={source.fragmentId}>

@@ -432,9 +432,213 @@ textarea:focus-visible {
   font-size: 0.9rem;
 }
 
-.council-grid {
+.quest-ready {
+  align-self: center;
+  margin: 0;
+  color: var(--teal);
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+
+.council-chamber {
+  margin-top: 24px;
+  padding: 28px 30px 30px;
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--violet);
+  border-radius: 7px;
+  background:
+    linear-gradient(130deg, rgba(97, 53, 140, 0.045), transparent 42%),
+    rgba(255, 255, 255, 0.94);
+}
+
+.chamber-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.chamber-heading h2 {
+  margin: 17px 0 8px;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: clamp(1.85rem, 3vw, 2.55rem);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+.chamber-heading p {
+  max-width: 800px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.delegation-count {
+  min-width: 116px;
+  padding: 12px 15px;
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #ffffff;
+  text-align: right;
+}
+
+.delegation-count strong {
+  color: var(--violet);
+  font-family: var(--serif);
+  font-size: 2rem;
+  font-weight: 500;
+}
+
+.delegation-count span,
+.delegation-label {
+  color: #697286;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.chamber-members {
+  margin-top: 24px;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.chamber-member {
+  min-width: 0;
+  min-height: 116px;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+}
+
+.chamber-member:has(input:disabled) {
+  cursor: default;
+}
+
+.chamber-member:has(input:checked) {
+  border-color: color-mix(in srgb, var(--violet) 52%, var(--line));
+  background: #f8f4fb;
+}
+
+.chamber-member--thinking,
+.chamber-member--contributed {
+  border-color: color-mix(in srgb, var(--teal) 48%, var(--line));
+  background: #f1faf8;
+}
+
+.chamber-member--failed {
+  border-color: #d8a4a8;
+  background: #fff7f7;
+}
+
+.chamber-member input {
+  margin: 3px 0 0;
+  accent-color: var(--violet);
+}
+
+.chamber-member-copy {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.chamber-member-copy strong {
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 1.18rem;
+  font-weight: 600;
+}
+
+.chamber-member-copy > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.chamber-member-copy small {
+  color: #5c3b78;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.chamber-member-status {
+  grid-column: 2;
+  color: #70798b;
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.delegation-console {
+  margin-top: 16px;
+  padding: 17px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f7f8fb;
+}
+
+.delegation-console p {
+  margin: 6px 0 0;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.delegation-console small,
+.chamber-note {
+  display: block;
+  margin-top: 7px;
+  color: #6c7486;
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.delegation-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.delegation-actions button {
+  min-height: 39px;
+  padding: 0 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.delegation-actions .primary-button {
+  min-height: 42px;
+  margin: 0;
+  border-color: #ca8612;
+  background: linear-gradient(180deg, #eba827 0%, #dc9415 100%);
+}
+
+.chamber-note {
+  margin-bottom: 0;
+}
+
+.council-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
   gap: 24px;
   margin-top: 24px;
 }
@@ -1215,12 +1419,17 @@ textarea:focus-visible {
 }
 
 @media (max-width: 1050px) {
-  .council-grid {
+  .chamber-members {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .agent-card:last-child {
-    grid-column: 1 / -1;
+  .delegation-console {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .council-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .loot-grid {
@@ -1266,6 +1475,34 @@ textarea:focus-visible {
     font-size: clamp(2.15rem, 10vw, 3rem);
   }
 
+  .council-chamber {
+    padding: 24px 20px 26px;
+  }
+
+  .chamber-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .delegation-count {
+    width: 100%;
+    text-align: left;
+  }
+
+  .chamber-members {
+    grid-template-columns: 1fr;
+  }
+
+  .delegation-actions {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .delegation-actions button {
+    width: 100%;
+  }
+
   .quest-form,
   .forge-fields {
     grid-template-columns: 1fr;
@@ -1281,10 +1518,6 @@ textarea:focus-visible {
 
   .council-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .agent-card:last-child {
-    grid-column: auto;
   }
 
   .agent-card {

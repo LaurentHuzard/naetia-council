@@ -4,7 +4,10 @@ import Fastify, {
   type FastifyInstance,
   type FastifyReply,
 } from "fastify";
-import { sessionIndexSchema } from "@naetia/assembly-protocol";
+import {
+  agentSelectionSchema,
+  sessionIndexSchema,
+} from "@naetia/assembly-protocol";
 import { z } from "zod";
 
 import {
@@ -76,6 +79,12 @@ const createRevisionBodySchema = z
   .object({
     decisionId: z.string().uuid(),
     intent: z.string().trim().min(1).max(2_000),
+  })
+  .strict();
+
+const conveneBodySchema = z
+  .object({
+    agentIds: agentSelectionSchema.optional(),
   })
   .strict();
 
@@ -209,19 +218,20 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.post("/sessions/:sessionId/convene", async (request, reply) => {
     const params = idParamsSchema.safeParse(request.params);
-    if (!params.success) {
+    const body = conveneBodySchema.safeParse(request.body ?? {});
+    if (!params.success || !body.success) {
       return reply.code(400).send({
         error: "INVALID_REQUEST",
-        message: "A valid session id is required",
+        message:
+          "A valid session id and one to nine distinct Council members are required",
       });
     }
     const behavior = { latencyMs: fakeModelDelayMs } as const;
     const session = orchestrator.convene(params.data.sessionId, {
-      behaviorByAgent: {
-        architect: behavior,
-        trickster: behavior,
-        guardian: behavior,
-      },
+      ...(body.data.agentIds === undefined
+        ? {}
+        : { agentIds: body.data.agentIds }),
+      behavior,
     });
     if (session === undefined) {
       return reply.code(404).send({
