@@ -13,7 +13,24 @@ const uniqueIdentifierListSchema = z
     message: "Identifiers must be unique",
   });
 
-export const agentRoleSchema = z.enum(["architect", "trickster", "guardian"]);
+export const agentRoleSchema = z.enum([
+  "architect",
+  "builder",
+  "trickster",
+  "guardian",
+  "archivist",
+  "game-designer",
+  "llm-genie",
+  "inner-child",
+  "scout",
+]);
+export const agentSelectionSchema = z
+  .array(agentRoleSchema)
+  .min(1)
+  .max(9)
+  .refine((roles) => new Set(roles).size === roles.length, {
+    message: "Agent roles must be unique",
+  });
 export const agentRunStatusSchema = z.enum([
   "pending",
   "starting",
@@ -225,7 +242,11 @@ export const councilEventSchema = z.discriminatedUnion("type", [
     .object({
       ...eventEnvelopeShape,
       type: z.literal("session.convened"),
-      payload: z.object({ agentDefinitions: z.array(agentDefinitionSchema).min(1) }).strict(),
+      payload: z
+        .object({
+          agentDefinitions: z.array(agentDefinitionSchema).min(1).max(9),
+        })
+        .strict(),
     })
     .strict(),
   z
@@ -366,6 +387,7 @@ export const assemblyCommandSchema = z.discriminatedUnion("type", [
       ...commandEnvelopeShape,
       type: z.literal("session.convene"),
       sessionId: identifierSchema,
+      agentIds: agentSelectionSchema.optional(),
     })
     .strict(),
   z

@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
 import {
+  LEGACY_CONVENE_AGENT_IDS,
+  resolveCouncilAgentDefinitions,
+} from "@naetia/agent-definitions";
+import {
   canTransitionFragmentStatus,
   type AgentDefinition,
   type AgentRole,
@@ -32,6 +36,10 @@ import {
   AgentProcessManager,
   type RunSnapshot as LiveRunSnapshot,
 } from "../process-manager/process-manager.js";
+import {
+  recommendDelegation,
+  type DelegationRecommendation,
+} from "./delegation-planner.js";
 
 const TERMINAL_STATUSES = new Set<AgentRunStatus>([
   "completed",
@@ -40,33 +48,6 @@ const TERMINAL_STATUSES = new Set<AgentRunStatus>([
 ]);
 
 const MAX_SESSION_INDEX_SIZE = 50;
-
-const COUNCIL_AGENT_DEFINITIONS = [
-  {
-    id: "architect.v1",
-    role: "architect",
-    name: "Architect",
-    perspective: "Structure et clarifie la quête.",
-    instructions: "Dégage la structure, les choix et le prochain geste vérifiable.",
-    version: 1,
-  },
-  {
-    id: "trickster.v1",
-    role: "trickster",
-    name: "Trickster",
-    perspective: "Challenge les prémisses de la quête.",
-    instructions: "Cherche l’hypothèse fragile et prouve la même valeur avec moins.",
-    version: 1,
-  },
-  {
-    id: "guardian.v1",
-    role: "guardian",
-    name: "Guardian",
-    perspective: "Détecte les risques et la surcharge.",
-    instructions: "Protège le contrôle humain, le budget et la possibilité de revenir.",
-    version: 1,
-  },
-] as const satisfies readonly AgentDefinition[];
 
 export interface QuestSnapshot {
   readonly questId: string;
@@ -94,6 +75,8 @@ export interface SessionSnapshot {
   readonly status: "created" | "running" | "completed";
   readonly createdAt: string;
   readonly eventCursor: number;
+  readonly agentDefinitions: readonly AgentDefinition[];
+  readonly delegationRecommendation: readonly DelegationRecommendation[];
   readonly runs: readonly RunSnapshot[];
   readonly fragments: readonly FragmentMessage[];
   readonly revisionOf?: DecisionRevisionMessage;
@@ -127,7 +110,9 @@ export type CouncilCommandErrorCode =
   | "DECISION_ALREADY_FORGED"
   | "REVISION_NOT_READY"
   | "REVISION_SOURCE_CONFLICT"
-  | "REVISION_ALREADY_STARTED";
+  | "REVISION_ALREADY_STARTED"
+  | "DELEGATION_CONFLICT"
+  | "INVALID_DELEGATION";
 
 export class CouncilCommandError extends Error {
   readonly code: CouncilCommandErrorCode;
@@ -148,6 +133,8 @@ export interface RunBehavior {
 }
 
 export interface ConveneOptions {
+  readonly agentIds?: readonly AgentRole[];
+  readonly behavior?: RunBehavior;
   readonly behaviorByAgent?: Readonly<Partial<Record<AgentRole, RunBehavior>>>;
 }
 
@@ -345,12 +332,23 @@ export class CouncilOrchestrator {
     if (session === undefined) {
       return undefined;
     }
+    const requestedAgentIds = options.agentIds ?? LEGACY_CONVENE_AGENT_IDS;
+    const selectedDefinitions = resolveDelegation(requestedAgentIds);
     if (session.runs.size > 0) {
+      if (
+        options.agentIds !== undefined &&
+        !sameDelegation(selectedDefinitions, [...session.agentDefinitions.values()])
+      ) {
+        throw new CouncilCommandError(
+          "DELEGATION_CONFLICT",
+          "This session has already convened another delegation",
+        );
+      }
       return this.#snapshot(session);
     }
 
     const occurredAt = new Date().toISOString();
-    const preparedRuns = COUNCIL_AGENT_DEFINITIONS.map((definition) => ({
+    const preparedRuns = selectedDefinitions.map((definition) => ({
       definition,
       runId: randomUUID(),
     }));
@@ -360,7 +358,7 @@ export class CouncilOrchestrator {
         type: "session.convened",
         sessionId,
         occurredAt,
-        payload: { agentDefinitions: COUNCIL_AGENT_DEFINITIONS },
+        payload: { agentDefinitions: selectedDefinitions },
       }),
       ...preparedRuns.map(({ definition, runId }) =>
         parseCouncilEvent({
@@ -387,7 +385,10 @@ export class CouncilOrchestrator {
     }
 
     for (const { definition, runId } of preparedRuns) {
-      const behavior = options.behaviorByAgent?.[definition.role];
+      const behavior = {
+        ...options.behavior,
+        ...options.behaviorByAgent?.[definition.role],
+      };
       const model =
         this.#model.adapter === "fake"
           ? {
@@ -1318,6 +1319,12 @@ export class CouncilOrchestrator {
       status: sessionStatus(runs),
       createdAt: session.createdAt,
       eventCursor: this.#journal.latestSequence(session.sessionId),
+      agentDefinitions: [...session.agentDefinitions.values()].map((definition) => ({
+        ...definition,
+      })),
+      delegationRecommendation: recommendDelegation(session.quest).map(
+        (recommendation) => ({ ...recommendation }),
+      ),
       runs,
       fragments: [...session.fragments.values()].map((projection) =>
         structuredClone(projection.fragment),
@@ -1499,6 +1506,40 @@ function sessionStatus(
   return runs.every((run) => TERMINAL_STATUSES.has(run.status))
     ? "completed"
     : "running";
+}
+
+function resolveDelegation(
+  requestedAgentIds: readonly AgentRole[],
+): readonly AgentDefinition[] {
+  if (
+    requestedAgentIds.length < 1 ||
+    requestedAgentIds.length > 9 ||
+    new Set(requestedAgentIds).size !== requestedAgentIds.length
+  ) {
+    throw new CouncilCommandError(
+      "INVALID_DELEGATION",
+      "A delegation must contain between one and nine distinct Council members",
+    );
+  }
+  const definitions = resolveCouncilAgentDefinitions(requestedAgentIds);
+  if (definitions.length !== requestedAgentIds.length) {
+    throw new CouncilCommandError(
+      "INVALID_DELEGATION",
+      "The delegation references an unknown Council member",
+    );
+  }
+  return definitions;
+}
+
+function sameDelegation(
+  requested: readonly AgentDefinition[],
+  current: readonly AgentDefinition[],
+): boolean {
+  if (requested.length !== current.length) {
+    return false;
+  }
+  const currentRoles = new Set(current.map(({ role }) => role));
+  return requested.every(({ role }) => currentRoles.has(role));
 }
 
 function normalizeOptionalText(value: string | undefined): string | undefined {

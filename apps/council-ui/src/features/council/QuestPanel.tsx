@@ -14,23 +14,23 @@ export function QuestPanel({ health, councilSession }: QuestPanelProps) {
     'Le royaume est scellé. Trouver et ouvrir la porte sans déclencher les anciens verrous ni trahir les pactes en vigueur.',
   );
   const hasSession = councilSession.session !== null;
-  const hasCreatedSession = hasSession && councilSession.session!.runs.length === 0;
+  const hasPreparedSession = hasSession && councilSession.session!.runs.length === 0;
   const hasDecision = councilSession.session?.decision !== undefined;
   const isBusy =
     health.isFetching ||
     councilSession.isSessionLoading ||
+    councilSession.isCreatingSession ||
     councilSession.isConvening ||
     councilSession.hasActiveRuns ||
     (councilSession.hasSelectedSession && !hasSession) ||
-    (hasSession && !hasCreatedSession && !hasDecision) ||
+    (hasSession && councilSession.session!.runs.length > 0 && !hasDecision) ||
     hasDecision;
   const buttonLabel = getPrimaryButtonLabel({
     isSessionLoading: councilSession.isSessionLoading,
-    isConvening: councilSession.isConvening,
+    isCreatingSession: councilSession.isCreatingSession,
     hasActiveRuns: councilSession.hasActiveRuns,
     hasDecision,
     hasSession,
-    hasCreatedSession,
     hasSessionError: councilSession.sessionError !== null,
     isCheckingHealth: health.isFetching,
     isHealthy: health.isSuccess,
@@ -45,11 +45,10 @@ export function QuestPanel({ health, councilSession }: QuestPanelProps) {
       return;
     }
     if (health.isSuccess) {
-      if (hasCreatedSession) {
-        councilSession.convene(undefined);
+      if (hasSession) {
         return;
       }
-      councilSession.convene({
+      councilSession.createQuest({
         title: title.trim(),
         ...(context.trim().length === 0 ? {} : { context: context.trim() }),
       });
@@ -94,19 +93,24 @@ export function QuestPanel({ health, councilSession }: QuestPanelProps) {
             onChange={(event) => setContext(event.target.value)}
           />
         </label>
-        <button className="primary-button" type="submit" disabled={isBusy}>
-          {buttonLabel}
-        </button>
+        {hasPreparedSession ? (
+          <p className="quest-ready">
+            Quête prête. Composez maintenant la délégation dans la Chambre.
+          </p>
+        ) : hasSession ? null : (
+          <button className="primary-button" type="submit" disabled={isBusy}>
+            {buttonLabel}
+          </button>
+        )}
       </form>
       {health.isError ? (
         <p className="health-error" role="alert">
           The Assembly ne répond pas encore. Lancez le daemon puis réessayez.
         </p>
       ) : null}
-      {councilSession.conveneError !== null ? (
+      {councilSession.createError !== null ? (
         <p className="health-error" role="alert">
-          La convocation a échoué. La session reste consultable et peut être
-          relancée.
+          La quête n’a pas pu être préparée. Aucun agent n’a été lancé.
         </p>
       ) : null}
       {councilSession.sessionError !== null ? (
@@ -128,22 +132,20 @@ export function QuestPanel({ health, councilSession }: QuestPanelProps) {
 
 function getPrimaryButtonLabel(state: Readonly<{
   isSessionLoading: boolean;
-  isConvening: boolean;
+  isCreatingSession: boolean;
   hasActiveRuns: boolean;
   hasDecision: boolean;
   hasSession: boolean;
-  hasCreatedSession: boolean;
   hasSessionError: boolean;
   isCheckingHealth: boolean;
   isHealthy: boolean;
 }>): string {
   if (state.isSessionLoading) return 'Reprise…';
   if (state.hasSessionError) return 'Session indisponible';
-  if (state.isConvening) return 'Convocation…';
+  if (state.isCreatingSession) return 'Préparation…';
   if (state.hasActiveRuns) return 'Council convoqué';
   if (state.hasDecision) return 'Décision forgée';
-  if (state.hasCreatedSession) return 'Convoquer le Council';
   if (state.hasSession) return 'Council terminé — choisir le butin';
   if (state.isCheckingHealth) return 'Vérification…';
-  return state.isHealthy ? 'Convoquer le Council' : 'Vérifier The Assembly';
+  return state.isHealthy ? 'Préparer la quête' : 'Vérifier The Assembly';
 }

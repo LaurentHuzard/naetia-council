@@ -1,4 +1,6 @@
-export type AgentId = "architect" | "trickster" | "guardian";
+import type { AgentRole } from "@naetia/assembly-domain";
+
+export type AgentId = AgentRole;
 
 export interface ModelRequest {
   readonly agentId: AgentId;

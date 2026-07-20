@@ -35,6 +35,7 @@ describe.sequential("Assembly daemon restart", () => {
     await firstApp.inject({
       method: "POST",
       url: `/sessions/${created.sessionId}/convene`,
+      payload: { agentIds: ["architect", "scout"] },
     });
     const completed = await waitForCompletedSession(firstApp, created.sessionId);
     const sourceFragment = completed.fragments[0];
@@ -109,7 +110,10 @@ describe.sequential("Assembly daemon restart", () => {
     const afterRestart = response.json<SessionResponse>();
 
     expect(afterRestart.quest).toEqual(beforeRestart.quest);
-    expect(afterRestart.runs).toHaveLength(3);
+    expect(afterRestart.runs).toHaveLength(2);
+    expect(afterRestart.agentDefinitions).toEqual(
+      beforeRestart.agentDefinitions,
+    );
     expect(
       afterRestart.runs.map(({ runId, agentId, agentDefinitionId, status, contribution }) => ({
         runId,
@@ -444,6 +448,14 @@ interface SessionResponse {
     title: string;
     context?: string;
   }>;
+  readonly agentDefinitions: readonly Readonly<{
+    id: string;
+    role: string;
+    name: string;
+    perspective: string;
+    instructions: string;
+    version: number;
+  }>[];
   readonly runs: readonly Readonly<{
     runId: string;
     agentId: string;

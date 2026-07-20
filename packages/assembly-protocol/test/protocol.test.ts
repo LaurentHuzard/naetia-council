@@ -84,6 +84,44 @@ describe("council events", () => {
 });
 
 describe("assembly commands", () => {
+  it("accepts a variable Council delegation and rejects invalid selections", () => {
+    const command = assemblyCommandSchema.parse({
+      commandId: "command-convene-1",
+      type: "session.convene",
+      sessionId: "session-1",
+      agentIds: ["architect", "builder", "guardian"],
+    });
+
+    if (command.type !== "session.convene") {
+      throw new Error("Expected a session.convene command");
+    }
+    expect(command.agentIds).toEqual(["architect", "builder", "guardian"]);
+    expect(
+      assemblyCommandSchema.safeParse({
+        commandId: "command-convene-empty",
+        type: "session.convene",
+        sessionId: "session-1",
+        agentIds: [],
+      }).success,
+    ).toBe(false);
+    expect(
+      assemblyCommandSchema.safeParse({
+        commandId: "command-convene-duplicate",
+        type: "session.convene",
+        sessionId: "session-1",
+        agentIds: ["architect", "architect"],
+      }).success,
+    ).toBe(false);
+    expect(
+      assemblyCommandSchema.safeParse({
+        commandId: "command-convene-unknown",
+        type: "session.convene",
+        sessionId: "session-1",
+        agentIds: ["oracle"],
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects unknown fields at a serialized boundary", () => {
     const result = assemblyCommandSchema.safeParse({
       commandId: "command-1",

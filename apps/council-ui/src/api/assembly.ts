@@ -1,4 +1,6 @@
 import {
+  agentDefinitionSchema,
+  agentRoleSchema,
   councilEventSchema,
   decisionRevisionSchema,
   decisionSchema,
@@ -7,6 +9,8 @@ import {
   returnPointSchema,
   sessionIndexSchema,
   type CouncilEventMessage,
+  type AgentDefinitionMessage,
+  type AgentRoleMessage,
   type DecisionMessage,
   type DecisionRevisionMessage,
   type FragmentMessage,
@@ -35,7 +39,7 @@ export type AgentRunStatus =
 export type AgentRunSnapshot = {
   runId: string;
   sessionId: string;
-  agentId: 'architect' | 'trickster' | 'guardian';
+  agentId: AgentRoleMessage;
   agentDefinitionId: string;
   status: AgentRunStatus;
   pid?: number;
@@ -56,6 +60,11 @@ export type CouncilSessionSnapshot = {
   status: 'created' | 'running' | 'completed';
   createdAt: string;
   eventCursor: number;
+  agentDefinitions: AgentDefinitionMessage[];
+  delegationRecommendation: Array<{
+    agentId: AgentRoleMessage;
+    reason: string;
+  }>;
   runs: AgentRunSnapshot[];
   fragments: FragmentMessage[];
   revisionOf?: DecisionRevisionMessage;
@@ -176,10 +185,12 @@ export async function createCouncilRevision(
 
 export async function conveneCouncilSession(
   sessionId: string,
+  agentIds: readonly AgentRoleMessage[],
 ): Promise<CouncilSessionSnapshot> {
   return parseSessionSnapshot(
     await requestJson(`/api/sessions/${encodeURIComponent(sessionId)}/convene`, {
       method: 'POST',
+      body: JSON.stringify({ agentIds }),
     }),
   );
 }
@@ -299,6 +310,22 @@ function parseSessionSnapshot(value: unknown): CouncilSessionSnapshot {
     (value.quest.context === undefined || typeof value.quest.context === 'string');
   const validRuns =
     Array.isArray(value.runs) && value.runs.every(isAgentRunSnapshot);
+  const validAgentDefinitions =
+    Array.isArray(value.agentDefinitions) &&
+    value.agentDefinitions.every((definition) =>
+      agentDefinitionSchema.safeParse(definition).success,
+    );
+  const validRecommendation =
+    Array.isArray(value.delegationRecommendation) &&
+    value.delegationRecommendation.length >= 1 &&
+    value.delegationRecommendation.length <= 9 &&
+    value.delegationRecommendation.every(
+      (recommendation) =>
+        isRecord(recommendation) &&
+        agentRoleSchema.safeParse(recommendation.agentId).success &&
+        typeof recommendation.reason === 'string' &&
+        recommendation.reason.trim().length > 0,
+    );
   const validEvents =
     Array.isArray(value.events) &&
     value.events.every((event) => councilEventSchema.safeParse(event).success);
@@ -339,6 +366,8 @@ function parseSessionSnapshot(value: unknown): CouncilSessionSnapshot {
     typeof value.createdAt !== 'string' ||
     !validQuest ||
     !validRuns ||
+    !validAgentDefinitions ||
+    !validRecommendation ||
     !validFragments ||
     !validDecision ||
     !validReturnPoint ||
@@ -355,6 +384,15 @@ function parseSessionSnapshot(value: unknown): CouncilSessionSnapshot {
 
   return {
     ...(value as CouncilSessionSnapshot),
+    agentDefinitions: (value.agentDefinitions as unknown[]).map((definition) =>
+      agentDefinitionSchema.parse(definition),
+    ),
+    delegationRecommendation: (
+      value.delegationRecommendation as Array<Record<string, unknown>>
+    ).map((recommendation) => ({
+      agentId: agentRoleSchema.parse(recommendation.agentId),
+      reason: recommendation.reason as string,
+    })),
     runs: (value.runs as unknown[]).map(parseAgentRunSnapshot),
     fragments: (value.fragments as unknown[]).map((fragment) =>
       fragmentSchema.parse(fragment),
@@ -405,9 +443,7 @@ function isAgentRunSnapshot(value: unknown): value is AgentRunSnapshot {
   return (
     typeof value.runId === 'string' &&
     typeof value.sessionId === 'string' &&
-    (value.agentId === 'architect' ||
-      value.agentId === 'trickster' ||
-      value.agentId === 'guardian') &&
+    agentRoleSchema.safeParse(value.agentId).success &&
     typeof value.agentDefinitionId === 'string' &&
     typeof value.status === 'string' &&
     agentRunStatuses.includes(value.status) &&

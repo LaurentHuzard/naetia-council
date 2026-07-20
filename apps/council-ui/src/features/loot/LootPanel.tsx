@@ -2,7 +2,7 @@ import type {
   CouncilSessionSnapshot,
   FragmentActionInput,
 } from '../../api/assembly';
-import { firstCouncilAgents } from '../council/agent-definitions';
+import { toAgentCardModel } from '../council/agent-definitions';
 
 type LootPanelProps = {
   session: CouncilSessionSnapshot | null;
@@ -46,9 +46,10 @@ export function LootPanel({
       <div className="loot-grid">
         {session.fragments.map((fragment) => {
           const run = session.runs.find((candidate) => candidate.runId === fragment.runId);
-          const agent = firstCouncilAgents.find(
-            (candidate) => candidate.id === run?.agentId,
+          const definition = session.agentDefinitions.find(
+            (candidate) => candidate.id === run?.agentDefinitionId,
           );
+          const agent = definition === undefined ? undefined : toAgentCardModel(definition);
           const isActing = actingFragmentId === fragment.id;
           const actionsDisabled = locked || isActing || fragment.status === 'composted';
 

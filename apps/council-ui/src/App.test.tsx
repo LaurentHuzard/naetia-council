@@ -12,6 +12,51 @@ import { App } from './App';
 import type { CouncilSessionSnapshot } from './api/assembly';
 import { useCouncilUiStore } from './state/council-ui-store';
 
+const architectDefinition = {
+  id: 'architect.v1',
+  role: 'architect',
+  name: 'Architect',
+  perspective: 'Structure, dépendances et cohérence globale.',
+  instructions: 'Donne une forme claire à la quête.',
+  version: 1,
+} as const;
+const tricksterDefinition = {
+  id: 'trickster.v1',
+  role: 'trickster',
+  name: 'Trickster',
+  perspective: 'Remise en cause des prémisses et alternatives.',
+  instructions: 'Cherche l’hypothèse fragile.',
+  version: 1,
+} as const;
+const guardianDefinition = {
+  id: 'guardian.v1',
+  role: 'guardian',
+  name: 'Guardian',
+  perspective: 'Risques, sécurité, surcharge et limites.',
+  instructions: 'Protège le contrôle humain.',
+  version: 1,
+} as const;
+const scoutDefinition = {
+  id: 'scout.v1',
+  role: 'scout',
+  name: 'Scout',
+  perspective: 'Recherche, vérification et collecte d’informations.',
+  instructions: 'Distingue les faits vérifiés des inconnues.',
+  version: 1,
+} as const;
+
+const councilDefinitions = () => [
+  architectDefinition,
+  tricksterDefinition,
+  guardianDefinition,
+];
+
+const delegationRecommendation = () => [
+  { agentId: 'architect' as const, reason: 'Structurer la quête.' },
+  { agentId: 'trickster' as const, reason: 'Challenger la prémisse.' },
+  { agentId: 'guardian' as const, reason: 'Protéger les limites.' },
+];
+
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
 
@@ -97,7 +142,7 @@ describe('Naetia Council shell', () => {
     expect(screen.getByText(/prête à recevoir/i)).toBeInTheDocument();
   });
 
-  it('keeps Architect, Trickster and Guardian in separate cards', async () => {
+  it('shows the complete Council before any quest is launched', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -107,19 +152,17 @@ describe('Naetia Council shell', () => {
 
     renderApp();
 
-    const council = screen.getByRole('region', { name: 'Membres du Council' });
-    const cards = within(council).getAllByRole('article');
-
-    expect(cards).toHaveLength(3);
-    expect(
-      within(cards[0]!).getByRole('heading', { name: 'Architect' }),
-    ).toBeVisible();
-    expect(
-      within(cards[1]!).getByRole('heading', { name: 'Trickster' }),
-    ).toBeVisible();
-    expect(
-      within(cards[2]!).getByRole('heading', { name: 'Guardian' }),
-    ).toBeVisible();
+    const chamber = screen.getByRole('region', {
+      name: 'Toute la Chambre est présente.',
+    });
+    expect(within(chamber).getAllByRole('checkbox')).toHaveLength(9);
+    expect(within(chamber).getByText('Architect')).toBeVisible();
+    expect(within(chamber).getByText('Builder')).toBeVisible();
+    expect(within(chamber).getByText('Archivist')).toBeVisible();
+    expect(within(chamber).getByText('Game Designer')).toBeVisible();
+    expect(within(chamber).getByText('LLM Genie')).toBeVisible();
+    expect(within(chamber).getByText('Inner Child')).toBeVisible();
+    expect(within(chamber).getByText('Scout')).toBeVisible();
   });
 
   it('convenes three runs and cancels only the selected run', async () => {
@@ -132,6 +175,8 @@ describe('Naetia Council shell', () => {
       status: 'running',
       createdAt: '2026-07-19T12:00:00.000Z',
       eventCursor: 8,
+      agentDefinitions: councilDefinitions(),
+      delegationRecommendation: delegationRecommendation(),
       fragments: [],
       runs: [
         {
@@ -174,7 +219,12 @@ describe('Naetia Council shell', () => {
         }
         if (path === '/api/sessions' && init?.method === 'POST') {
           return new Response(
-            JSON.stringify({ ...runningSnapshot, status: 'created', runs: [] }),
+            JSON.stringify({
+              ...runningSnapshot,
+              status: 'created',
+              agentDefinitions: [],
+              runs: [],
+            }),
             { status: 200 },
           );
         }
@@ -201,7 +251,10 @@ describe('Naetia Council shell', () => {
     renderApp();
 
     fireEvent.click(
-      await screen.findByRole('button', { name: 'Convoquer le Council' }),
+      await screen.findByRole('button', { name: 'Préparer la quête' }),
+    );
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Convoquer 3 voix' }),
     );
 
     const architect = await screen.findByRole('article', {
@@ -229,6 +282,97 @@ describe('Naetia Council shell', () => {
     expect(localStorage.getItem('naetia-council-ui')).toContain('session-1');
   });
 
+  it('lets the human replace a recommended member before convening', async () => {
+    const recommendation = [
+      { agentId: 'architect' as const, reason: 'Structurer la quête.' },
+      { agentId: 'builder' as const, reason: 'Construire une preuve.' },
+      { agentId: 'guardian' as const, reason: 'Protéger les limites.' },
+    ];
+    const createdSnapshot: CouncilSessionSnapshot = {
+      sessionId: 'session-delegation',
+      quest: { questId: 'quest-delegation', title: 'Vérifier une piste' },
+      status: 'created',
+      createdAt: '2026-07-20T03:00:00.000Z',
+      eventCursor: 1,
+      agentDefinitions: [],
+      delegationRecommendation: recommendation,
+      runs: [],
+      fragments: [],
+      events: [],
+    };
+    const selectedDefinitions = [
+      architectDefinition,
+      guardianDefinition,
+      scoutDefinition,
+    ];
+    const convenedSnapshot: CouncilSessionSnapshot = {
+      ...createdSnapshot,
+      status: 'running',
+      eventCursor: 8,
+      agentDefinitions: selectedDefinitions,
+      runs: selectedDefinitions.map((definition, index) => ({
+        runId: `run-${definition.role}`,
+        sessionId: createdSnapshot.sessionId,
+        agentId: definition.role,
+        agentDefinitionId: definition.id,
+        status: 'running' as const,
+        pid: 7000 + index,
+        contribution: '',
+      })),
+    };
+    let isConvened = false;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === '/api/health') {
+          return new Response(JSON.stringify({ status: 'ok' }), { status: 200 });
+        }
+        if (path === '/api/sessions' && init?.method === 'POST') {
+          return new Response(JSON.stringify(createdSnapshot), { status: 201 });
+        }
+        if (path === '/api/sessions/session-delegation/convene') {
+          isConvened = true;
+          return new Response(JSON.stringify(convenedSnapshot), { status: 202 });
+        }
+        if (path === '/api/sessions/session-delegation') {
+          return new Response(
+            JSON.stringify(isConvened ? convenedSnapshot : createdSnapshot),
+            { status: 200 },
+          );
+        }
+        return new Response(null, { status: 404 });
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderApp();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Préparer la quête' }),
+    );
+    await screen.findByRole('button', { name: 'Convoquer 3 voix' });
+    const chamber = screen.getByRole('region', {
+      name: 'Toute la Chambre est présente.',
+    });
+    const conveneButton = within(chamber).getByRole('button', {
+      name: 'Convoquer 3 voix',
+    });
+    fireEvent.click(within(chamber).getByRole('checkbox', { name: /^Builder/ }));
+    fireEvent.click(within(chamber).getByRole('checkbox', { name: /^Scout/ }));
+    fireEvent.click(conveneButton);
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([input]) => String(input) === '/api/sessions/session-delegation/convene',
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+        agentIds: ['architect', 'guardian', 'scout'],
+      });
+    });
+    expect(await screen.findByRole('article', { name: 'Scout' })).toBeVisible();
+    expect(screen.queryByRole('article', { name: 'Builder' })).not.toBeInTheDocument();
+  });
+
   it('keeps a fragment, forges a sourced decision and renders the return point', async () => {
     const completedAt = '2026-07-19T12:05:00.000Z';
     const baseSnapshot: CouncilSessionSnapshot = {
@@ -241,6 +385,8 @@ describe('Naetia Council shell', () => {
       status: 'completed',
       createdAt: '2026-07-19T12:00:00.000Z',
       eventCursor: 20,
+      agentDefinitions: councilDefinitions(),
+      delegationRecommendation: delegationRecommendation(),
       runs: [
         {
           runId: 'run-architect',
@@ -424,7 +570,12 @@ describe('Naetia Council shell', () => {
       expect(within(guardianLoot).getByText('Composté')).toBeVisible(),
     );
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /Architect/ }));
+    const forgePanel = screen.getByRole('region', {
+      name: 'Transformer le butin en décision',
+    });
+    fireEvent.click(
+      within(forgePanel).getByRole('checkbox', { name: /Architect/ }),
+    );
     fireEvent.change(screen.getByLabelText('Décision'), {
       target: { value: 'Ouvrir un passage réversible.' },
     });
@@ -449,7 +600,7 @@ describe('Naetia Council shell', () => {
     expect(within(returnPanel).getByText('La fatigue peut fausser la lecture.'))
       .toBeVisible();
     expect(within(returnPanel).getByText('Tester pendant dix minutes.')).toBeVisible();
-    expect(screen.queryByRole('checkbox', { name: /Guardian/ })).not.toBeInTheDocument();
+    expect(within(returnPanel).queryByText('Guardian')).not.toBeInTheDocument();
   });
 
   it('lists recent sessions and resumes a created session without creating another one', async () => {
@@ -462,6 +613,8 @@ describe('Naetia Council shell', () => {
       status: 'created',
       createdAt: '2026-07-20T00:00:00.000Z',
       eventCursor: 3,
+      agentDefinitions: [],
+      delegationRecommendation: delegationRecommendation(),
       runs: [],
       fragments: [],
       events: [],
@@ -470,6 +623,7 @@ describe('Naetia Council shell', () => {
       ...createdSnapshot,
       status: 'running',
       eventCursor: 8,
+      agentDefinitions: [architectDefinition],
       runs: [
         {
           runId: 'run-created-architect',
@@ -539,7 +693,7 @@ describe('Naetia Council shell', () => {
       'session-created',
     );
     fireEvent.click(
-      screen.getByRole('button', { name: 'Convoquer le Council' }),
+      screen.getByRole('button', { name: 'Convoquer 3 voix' }),
     );
 
     await waitFor(() => {
@@ -616,6 +770,8 @@ describe('Naetia Council shell', () => {
       status: 'completed',
       createdAt: '2026-07-20T00:00:00.000Z',
       eventCursor: suffix === 'a' ? 20 : 21,
+      agentDefinitions: [architectDefinition],
+      delegationRecommendation: delegationRecommendation(),
       runs: [
         {
           runId: `run-${suffix}`,
@@ -719,6 +875,8 @@ describe('Naetia Council shell', () => {
       status: 'completed',
       createdAt,
       eventCursor: 30,
+      agentDefinitions: [architectDefinition],
+      delegationRecommendation: delegationRecommendation(),
       runs: [
         {
           runId: 'run-source',
@@ -752,6 +910,8 @@ describe('Naetia Council shell', () => {
       status: 'created',
       createdAt: '2026-07-20T01:10:00.000Z',
       eventCursor: 31,
+      agentDefinitions: [],
+      delegationRecommendation: delegationRecommendation(),
       runs: [],
       fragments: [],
       revisionOf: {
@@ -770,6 +930,7 @@ describe('Naetia Council shell', () => {
       ...revisionSnapshot,
       status: 'running',
       eventCursor: 38,
+      agentDefinitions: councilDefinitions(),
       runs: (['architect', 'trickster', 'guardian'] as const).map(
         (agentId, index) => ({
           runId: `run-revision-${agentId}`,
@@ -889,7 +1050,7 @@ describe('Naetia Council shell', () => {
     expect(screen.getByText(intent)).toBeVisible();
     const previous = screen.getByLabelText('Décision précédente');
     expect(within(previous).getByText(sourceDecision.statement)).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Convoquer le Council' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Convoquer 3 voix' })).toBeEnabled();
     expect(fetchMock).not.toHaveBeenCalledWith(
       '/api/sessions/session-revision/convene',
       expect.anything(),
@@ -899,7 +1060,7 @@ describe('Naetia Council shell', () => {
     );
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'Convoquer le Council' }),
+      screen.getByRole('button', { name: 'Convoquer 3 voix' }),
     );
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -927,6 +1088,8 @@ describe('Naetia Council shell', () => {
       status: 'created',
       createdAt: '2026-07-19T12:00:00.000Z',
       eventCursor: 1,
+      agentDefinitions: [],
+      delegationRecommendation: delegationRecommendation(),
       fragments: [],
       runs: [],
       events: [],
@@ -935,6 +1098,7 @@ describe('Naetia Council shell', () => {
       ...createdSnapshot,
       status: 'running',
       eventCursor: 8,
+      agentDefinitions: [architectDefinition],
       runs: [baseRun],
     } as const;
     const deltaEvent = {
@@ -951,6 +1115,7 @@ describe('Naetia Council shell', () => {
     } as const;
     let serverSnapshot: CouncilSessionSnapshot = {
       ...runningSnapshot,
+      agentDefinitions: [...runningSnapshot.agentDefinitions],
       runs: [...runningSnapshot.runs],
       fragments: [...runningSnapshot.fragments],
       events: [...runningSnapshot.events],
@@ -978,7 +1143,10 @@ describe('Naetia Council shell', () => {
 
     const rendered = renderApp();
     fireEvent.click(
-      await screen.findByRole('button', { name: 'Convoquer le Council' }),
+      await screen.findByRole('button', { name: 'Préparer la quête' }),
+    );
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Convoquer 3 voix' }),
     );
 
     await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
@@ -993,6 +1161,7 @@ describe('Naetia Council shell', () => {
     serverSnapshot = {
       ...runningSnapshot,
       eventCursor: 9,
+      agentDefinitions: [...runningSnapshot.agentDefinitions],
       runs: [{ ...baseRun, contribution: 'Signal SSE reçu.' }],
       fragments: [...runningSnapshot.fragments],
       events: [deltaEvent],

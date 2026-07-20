@@ -4,7 +4,7 @@ import type {
   CouncilSessionSnapshot,
   ForgeCouncilDecisionInput,
 } from '../../api/assembly';
-import { firstCouncilAgents } from '../council/agent-definitions';
+import { toAgentCardModel } from '../council/agent-definitions';
 
 type ForgePanelProps = {
   session: CouncilSessionSnapshot | null;
@@ -68,9 +68,11 @@ export function ForgePanel({ session, isForging, error, onForge }: ForgePanelPro
             <legend>Fragments sources</legend>
             {keptFragments.map((fragment) => {
               const run = session.runs.find((candidate) => candidate.runId === fragment.runId);
-              const agent = firstCouncilAgents.find(
-                (candidate) => candidate.id === run?.agentId,
+              const definition = session.agentDefinitions.find(
+                (candidate) => candidate.id === run?.agentDefinitionId,
               );
+              const agent =
+                definition === undefined ? undefined : toAgentCardModel(definition);
               return (
                 <label key={fragment.id}>
                   <input

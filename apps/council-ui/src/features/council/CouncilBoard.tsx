@@ -5,7 +5,8 @@ import { LootPanel } from '../loot/LootPanel';
 import { ReturnPanel } from '../return/ReturnPanel';
 import { RevisionContextPanel } from '../return/RevisionContextPanel';
 import { AgentCard } from './AgentCard';
-import { firstCouncilAgents } from './agent-definitions';
+import { toAgentCardModel } from './agent-definitions';
+import { CouncilChamber } from './CouncilChamber';
 import { QuestPanel } from './QuestPanel';
 
 type CouncilBoardProps = {
@@ -26,15 +27,24 @@ export function CouncilBoard({ health, councilSession }: CouncilBoardProps) {
         navigationLocked={councilSession.isNavigationLocked}
         onResume={councilSession.resumeSession}
       />
-      <section className="council-grid" aria-label="Membres du Council">
-        {firstCouncilAgents.map((agent) => (
-          <AgentCardSlot
-            key={agent.id}
-            agent={agent}
-            councilSession={councilSession}
-          />
-        ))}
-      </section>
+      <CouncilChamber
+        key={`chamber:${councilSession.session?.sessionId ?? 'new'}`}
+        session={councilSession.session}
+        isConvening={councilSession.isConvening}
+        error={councilSession.conveneError}
+        onConvene={councilSession.convene}
+      />
+      {(councilSession.session?.agentDefinitions.length ?? 0) === 0 ? null : (
+        <section className="council-grid" aria-label="Voix convoquées">
+          {councilSession.session?.agentDefinitions.map((definition) => (
+            <AgentCardSlot
+              key={definition.id}
+              agent={toAgentCardModel(definition)}
+              councilSession={councilSession}
+            />
+          ))}
+        </section>
+      )}
       <LootPanel
         session={councilSession.session}
         actingFragmentId={councilSession.actingFragmentId}
@@ -63,7 +73,7 @@ function AgentCardSlot({
   agent,
   councilSession,
 }: Readonly<{
-  agent: (typeof firstCouncilAgents)[number];
+  agent: ReturnType<typeof toAgentCardModel>;
   councilSession: CouncilSessionController;
 }>) {
   const run = councilSession.session?.runs.find(

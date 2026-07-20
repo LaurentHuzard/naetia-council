@@ -7,7 +7,17 @@ export type FragmentId = string;
 export type DecisionId = string;
 export type EventId = string;
 
-export const AGENT_ROLES = ["architect", "trickster", "guardian"] as const;
+export const AGENT_ROLES = [
+  "architect",
+  "builder",
+  "trickster",
+  "guardian",
+  "archivist",
+  "game-designer",
+  "llm-genie",
+  "inner-child",
+  "scout",
+] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
 
 export const AGENT_RUN_STATUSES = [

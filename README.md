@@ -6,13 +6,15 @@ Naetia Council transforme une quête confuse en décision navigable grâce à pl
 
 ## Première porte
 
-Cette première expédition couvre les Orbites 0 à 5.3 :
+Cette première expédition couvre les Orbites 0 à 5.4 :
 
 - un workspace pnpm TypeScript strict ;
 - une interface React/Vite qui vérifie la disponibilité de The Assembly ;
 - un daemon Fastify local ;
 - un domaine et un protocole validé par Zod ;
-- trois runs séparés — Architect, Trickster et Guardian — lancés avec `child_process.fork` ;
+- une Chambre permanente de neuf membres avec des définitions versionnées ;
+- une délégation recommandée, modifiable avant toute consommation ;
+- un run et un processus `child_process.fork` uniquement par membre convoqué ;
 - un faux modèle déterministe, progressif, annulable et sans clé API ;
 - un mode Codex CLI optionnel qui lance un appel réel indépendant par run ;
 - un journal SQLite append-only qui reconstruit les sessions après redémarrage ;
@@ -38,9 +40,9 @@ Browser (React + Vite)
           ├─ journal SQLite → projection reconstruite
           ├─ orchestrateur
           └─ process manager des runs vivants
-              ├─ fork → Architect
-              ├─ fork → Trickster
-              └─ fork → Guardian
+              ├─ fork → membre convoqué A
+              ├─ fork → membre convoqué B
+              └─ fork → membre convoqué N
 ```
 
 Les processus agents ne connaissent ni HTTP ni SQLite. Ils reçoivent un contexte immuable par IPC et publient uniquement des événements validés. Leur environnement est réduit à une allowlist et n’hérite pas des futures clés fournisseur du daemon.
@@ -64,16 +66,22 @@ L’interface est servie par Vite sur `http://127.0.0.1:5173` et relaie `/api` v
 ## Parcours local
 
 1. Depuis le Port, commencez une nouvelle quête ou reprenez explicitement une session récente.
-2. Décrivez une quête, puis convoquez le Council.
-3. Attendez les contributions séparées d’Architect, Trickster et Guardian.
-4. Classez chaque fragment avec KEEP, CHALLENGE ou COMPOST.
-5. Sélectionnez au moins un fragment conservé dans la Forge.
-6. Écrivez la décision, sa raison, l’objection à garder, la condition de révision et le prochain petit geste.
-7. Forge affiche le Return Point et verrouille la provenance de cette première décision.
-8. Si le contexte change, préparez une révision en décrivant ce qui a changé.
-9. Vérifiez la décision précédente en lecture seule, puis convoquez explicitement le nouveau Council.
+2. Décrivez une quête, puis préparez-la sans lancer de processus.
+3. Dans la Chambre, acceptez ou modifiez la délégation recommandée ; le bouton
+   Full Council sélectionne les neuf membres.
+4. Confirmez la convocation, puis attendez les contributions séparées des voix choisies.
+5. Classez chaque fragment avec KEEP, CHALLENGE ou COMPOST.
+6. Sélectionnez au moins un fragment conservé dans la Forge.
+7. Écrivez la décision, sa raison, l’objection à garder, la condition de révision et le prochain petit geste.
+8. Forge affiche le Return Point et verrouille la provenance de cette première décision.
+9. Si le contexte change, préparez une révision en décrivant ce qui a changé.
+10. Vérifiez la décision précédente, recomposez sa délégation, puis convoquez-la explicitement.
 
-CHALLENGE conserve l’objection humaine dans le journal, mais ne relance pas encore l’agent. Une session accepte une seule décision forgée ; ses sources deviennent immuables après la Forge. Une révision ouvre donc une session enfant avec trois nouveaux runs. Un retry identique retrouve le même enfant et une intention concurrente est refusée.
+CHALLENGE conserve l’objection humaine dans le journal, mais ne relance pas encore
+l’agent. Une session accepte une seule décision forgée ; ses sources deviennent
+immuables après la Forge. Une révision ouvre une session enfant sans run et
+redemande une délégation. Un retry identique retrouve le même enfant et une
+intention concurrente est refusée.
 
 ## Commandes
 
@@ -97,7 +105,15 @@ export CODEX_HOME=/chemin/vers/.codex
 pnpm dev
 ```
 
-Chaque carte correspond alors à un processus agent et à une invocation `codex exec` distincte. Architect, Trickster et Guardian reçoivent la même quête mais leurs propres définition, perspective et instructions. Pour une révision, The Assembly dérive aussi D1, son objection, sa condition de révision, son dernier geste et l’intention humaine ; le prompt demande à chaque voix d’indiquer ce qu’elle conserve, change ou conteste. The Assembly appelle Codex directement, sans shell, avec le prompt sur stdin, un répertoire temporaire vide, un sandbox `read-only`, la recherche web désactivée et un environnement réduit à `CODEX_HOME`. L’authentification ChatGPT existante du CLI reste locale ; aucune clé n’est transmise à l’interface ou dans l’IPC.
+Chaque carte correspond alors à un processus agent et à une invocation `codex
+exec` distincte. Chaque membre convoqué reçoit la même quête mais sa définition,
+sa perspective et ses instructions versionnées. Pour une révision, The Assembly
+dérive aussi D1, son objection, sa condition de révision, son dernier geste et
+l’intention humaine. The Assembly appelle Codex directement, sans shell, avec le
+prompt sur stdin, un répertoire temporaire vide, un sandbox `read-only`, la
+recherche web désactivée et un environnement réduit à `CODEX_HOME`.
+L’authentification ChatGPT existante du CLI reste locale ; aucune clé n’est
+transmise à l’interface ou dans l’IPC.
 
 `CODEX_MODEL` est facultatif : absent, Codex utilise son modèle par défaut. `CODEX_RUN_TIMEOUT_MS` vaut 180 secondes par défaut et `CODEX_REVEAL_DELAY_MS` contrôle l’apparition progressive dans les cartes. Codex CLI émet actuellement le message final plutôt que des deltas de texte natifs ; The Assembly révèle donc ce résultat par fragments après réception. La durée s’arrête dès la réception du résultat CLI et exclut cette révélation locale. Lorsqu’ils sont fournis, les tokens d’entrée, de cache, de sortie et de raisonnement sont journalisés avec la contribution puis affichés séparément ; aucun total ambigu ni coût monétaire n’est inventé. Si l’usage est absent, l’interface le dit explicitement.
 
@@ -113,6 +129,8 @@ SQLite utilise par défaut `data/naetia-council.sqlite`. Le fichier est créé a
 
 ## Limites actuelles
 
+- le Full Council sélectionne et lance neuf runs distincts, mais leur
+  orchestration en cercles avec limite de concurrence appartient à l’Orbite 5.5 ;
 - le Port affiche les huit sessions les plus récentes, sans pagination, recherche, suppression ni URLs partageables ;
 - CHALLENGE classe durablement un fragment mais ne convoque pas encore une réponse contradictoire ;
 - une décision forgée reste immuable et unique dans sa session ; une décision ne possède qu’une révision directe et les branches concurrentes ne sont pas encore modélisées ;
@@ -128,4 +146,5 @@ SQLite utilise par défaut `data/naetia-council.sqlite`. Le fichier est créé a
 
 Pas de Docker, déploiement web, authentification distante, PostgreSQL, Redis, WebSocket, queue distribuée, base vectorielle, microservices ni marketplace d’agents.
 
+La fondation produit canonique est dans [Product Foundation](docs/product-foundation.md).
 Le cap vérifié et les risques ouverts sont consignés dans [Mission Control](docs/mission-control.md).
