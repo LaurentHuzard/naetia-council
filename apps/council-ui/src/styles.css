@@ -607,6 +607,62 @@ textarea:focus-visible {
   line-height: 1.45;
 }
 
+.model-execution-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.model-execution-heading h3 {
+  margin-bottom: 0;
+}
+
+.model-execution-heading span {
+  overflow: hidden;
+  color: #646d81;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-metrics {
+  margin: 14px 0 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.model-metrics div {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--agent-accent) 16%, #d7dae2);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-accent) 2%, #ffffff);
+}
+
+.model-metrics dt {
+  color: #70788a;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.model-metrics dd {
+  margin: 3px 0 0;
+  color: #313a50;
+  font-family: var(--serif);
+  font-size: 0.96rem;
+}
+
+.model-usage-note {
+  margin-top: 12px !important;
+  color: #697286 !important;
+  font-size: 0.78rem !important;
+}
+
 .agent-footer {
   min-height: 64px;
   margin: 0 27px;

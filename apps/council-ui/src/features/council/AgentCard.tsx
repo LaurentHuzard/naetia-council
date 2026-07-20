@@ -18,6 +18,11 @@ const statusLabels: Record<AgentRunStatus, string> = {
   cancelled: 'Annulé',
 };
 
+const tokenFormatter = new Intl.NumberFormat('fr-FR');
+const durationFormatter = new Intl.NumberFormat('fr-FR', {
+  maximumFractionDigits: 1,
+});
+
 function formatElapsed(run: AgentRunSnapshot | undefined) {
   if (run?.startedAt === undefined) {
     return '00:00';
@@ -63,6 +68,67 @@ function canCancel(run: AgentRunSnapshot | undefined) {
     (run.status === 'pending' ||
       run.status === 'starting' ||
       run.status === 'running')
+  );
+}
+
+function formatModelDuration(durationMs: number) {
+  if (durationMs < 1_000) {
+    return `${tokenFormatter.format(durationMs)} ms`;
+  }
+  return `${durationFormatter.format(durationMs / 1_000)} s`;
+}
+
+function ModelExecutionSummary({
+  execution,
+}: {
+  execution: NonNullable<AgentRunSnapshot['modelExecution']>;
+}) {
+  const adapterLabel = execution.adapter === 'codex-cli' ? 'Codex CLI' : 'Faux modèle';
+  const usage = execution.usage;
+
+  return (
+    <section className="agent-section model-execution" aria-label="Mesures du modèle">
+      <div className="model-execution-heading">
+        <h3>Exécution modèle</h3>
+        <span>
+          {adapterLabel}
+          {execution.model === undefined ? '' : ` · ${execution.model}`}
+        </span>
+      </div>
+      <dl className="model-metrics">
+        <div>
+          <dt>Durée</dt>
+          <dd>{formatModelDuration(execution.durationMs)}</dd>
+        </div>
+        {usage === undefined ? null : (
+          <>
+            <div>
+              <dt>Entrée</dt>
+              <dd>{tokenFormatter.format(usage.inputTokens)}</dd>
+            </div>
+            <div>
+              <dt>Cache</dt>
+              <dd>{tokenFormatter.format(usage.cachedInputTokens)}</dd>
+            </div>
+            <div>
+              <dt>Sortie</dt>
+              <dd>{tokenFormatter.format(usage.outputTokens)}</dd>
+            </div>
+            <div>
+              <dt>Raisonnement</dt>
+              <dd>{tokenFormatter.format(usage.reasoningOutputTokens)}</dd>
+            </div>
+          </>
+        )}
+      </dl>
+      {usage === undefined ? (
+        <p className="model-usage-note">
+          {execution.adapter === 'fake'
+            ? 'Simulation locale · aucun jeton consommé.'
+            : 'Usage non fourni par Codex CLI.'}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -119,6 +185,10 @@ export function AgentCard({ agent, run, cancelling, onCancel }: AgentCardProps) 
           </p>
         ) : null}
       </div>
+
+      {run?.modelExecution === undefined ? null : (
+        <ModelExecutionSummary execution={run.modelExecution} />
+      )}
 
       <footer className="agent-footer">
         <span className="elapsed-label">Écoulé</span>

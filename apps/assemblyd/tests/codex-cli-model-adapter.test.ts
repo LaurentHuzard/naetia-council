@@ -37,6 +37,23 @@ describe("CodexCliModelAdapter", () => {
     });
   });
 
+  it("does not count the local reveal delay as model execution time", async () => {
+    const startedAt = Date.now();
+    const events = await collect(
+      adapter("success", {}, { revealDelayMs: 80 }).stream(request(), signal()),
+    );
+    const elapsedMs = Date.now() - startedAt;
+    const completed = events.at(-1);
+    expect(completed?.type).toBe("completed");
+    if (completed?.type !== "completed") {
+      return;
+    }
+    expect(
+      events.filter((event) => event.type === "delta").length,
+    ).toBeGreaterThan(1);
+    expect(elapsedMs - completed.execution.durationMs).toBeGreaterThanOrEqual(100);
+  });
+
   it("passes the prompt through stdin and constrains the Codex process", async () => {
     const events = await collect(
       adapter("inspect", { CODEX_HOME: "/tmp/codex-home" }).stream(
@@ -129,7 +146,7 @@ describe("CodexCliModelAdapter", () => {
 function adapter(
   behavior: string,
   environment: NodeJS.ProcessEnv = {},
-  overrides: Readonly<{ killGraceMs?: number }> = {},
+  overrides: Readonly<{ killGraceMs?: number; revealDelayMs?: number }> = {},
 ): CodexCliModelAdapter {
   return new CodexCliModelAdapter({
     executablePath: fixturePath,

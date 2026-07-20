@@ -4,7 +4,9 @@
 import { readFileSync } from "node:fs";
 
 const prompt = readFileSync(0, "utf8");
-const behavior = process.env["FAKE_CODEX_BEHAVIOR"] ?? "success";
+const modelIndex = process.argv.indexOf("--model");
+const model = modelIndex === -1 ? undefined : process.argv[modelIndex + 1];
+const behavior = resolveBehavior();
 
 if (behavior === "hang") {
   setInterval(() => undefined, 1_000);
@@ -56,6 +58,21 @@ function usage() {
     output_tokens: 42,
     reasoning_output_tokens: 7,
   };
+}
+
+function resolveBehavior() {
+  if (model === "revision-proof") {
+    return "inspect";
+  }
+  if (model === "isolated-failure-proof") {
+    if (prompt.includes("Rôle : Architect.")) {
+      return "malformed";
+    }
+    if (prompt.includes("Rôle : Guardian.")) {
+      return "hang";
+    }
+  }
+  return process.env["FAKE_CODEX_BEHAVIOR"] ?? "success";
 }
 
 function emit(event) {
