@@ -39,6 +39,7 @@ export type ModelSelectionErrorCode =
   | "DUPLICATE_PROVIDER_PROFILE"
   | "DUPLICATE_MODEL_PROFILE"
   | "DUPLICATE_AGENT_POLICY"
+  | "DUPLICATE_ALLOWED_MODEL_PROFILE"
   | "MODEL_PROVIDER_NOT_FOUND"
   | "MODEL_PROFILE_NOT_ALLOWED"
   | "MODEL_PROFILE_NOT_FOUND"
@@ -71,7 +72,7 @@ export class ModelProfileRegistry {
   readonly #providers: ReadonlyMap<string, ProviderProfile>;
   readonly #models: ReadonlyMap<string, ModelProfile>;
   readonly #agentPolicies: ReadonlyMap<AgentRole, AgentModelPolicy>;
-  readonly #councilDefaultModelProfileId?: string;
+  readonly #councilDefaultModelProfileId: string | undefined;
 
   constructor(input: ModelProfileRegistryInput) {
     this.#providers = uniqueMap(
@@ -104,6 +105,40 @@ export class ModelProfileRegistry {
         );
       }
     }
+
+    if (this.#councilDefaultModelProfileId !== undefined) {
+      this.#requireModel(this.#councilDefaultModelProfileId);
+    }
+
+    for (const policy of this.#agentPolicies.values()) {
+      const seenModelProfileIds = new Set<string>();
+      for (const profileId of policy.allowedModelProfileIds) {
+        if (seenModelProfileIds.has(profileId)) {
+          throw new ModelSelectionError(
+            "DUPLICATE_ALLOWED_MODEL_PROFILE",
+            `Model profile ${profileId} is allowed more than once for agent ${policy.agentId}`,
+          );
+        }
+        seenModelProfileIds.add(profileId);
+      }
+      for (const profileId of policy.allowedModelProfileIds) {
+        this.#requireModel(profileId);
+      }
+
+      const defaultModelProfileId =
+        policy.defaultModelProfileId ?? this.#councilDefaultModelProfileId;
+      if (defaultModelProfileId === undefined) {
+        continue;
+      }
+
+      this.#requireModel(defaultModelProfileId);
+      if (!policy.allowedModelProfileIds.includes(defaultModelProfileId)) {
+        throw new ModelSelectionError(
+          "MODEL_PROFILE_NOT_ALLOWED",
+          `Default model profile ${defaultModelProfileId} is not allowed for agent ${policy.agentId}`,
+        );
+      }
+    }
   }
 
   listProviders(): readonly ProviderProfile[] {
@@ -115,14 +150,7 @@ export class ModelProfileRegistry {
   }
 
   allowedModelsFor(agentId: AgentRole): readonly ModelProfile[] {
-    const policy = this.#agentPolicies.get(agentId);
-    if (policy === undefined) {
-      return this.#councilDefaultModelProfileId === undefined
-        ? []
-        : [this.#requireModel(this.#councilDefaultModelProfileId)];
-    }
-
-    return policy.allowedModelProfileIds.map((profileId) =>
+    return this.#allowedModelProfileIdsFor(agentId).map((profileId) =>
       this.#requireModel(profileId),
     );
   }
@@ -144,14 +172,10 @@ export class ModelProfileRegistry {
       );
     }
 
-    if (
-      explicitModelProfileId !== undefined &&
-      policy !== undefined &&
-      !policy.allowedModelProfileIds.includes(explicitModelProfileId)
-    ) {
+    if (!this.#allowedModelProfileIdsFor(agentId).includes(modelProfileId)) {
       throw new ModelSelectionError(
         "MODEL_PROFILE_NOT_ALLOWED",
-        `Model profile ${explicitModelProfileId} is not allowed for agent ${agentId}`,
+        `Model profile ${modelProfileId} is not allowed for agent ${agentId}`,
       );
     }
 
@@ -185,6 +209,17 @@ export class ModelProfileRegistry {
       );
     }
     return model;
+  }
+
+  #allowedModelProfileIdsFor(agentId: AgentRole): readonly string[] {
+    const policy = this.#agentPolicies.get(agentId);
+    if (policy !== undefined) {
+      return policy.allowedModelProfileIds;
+    }
+
+    return this.#councilDefaultModelProfileId === undefined
+      ? []
+      : [this.#councilDefaultModelProfileId];
   }
 }
 
