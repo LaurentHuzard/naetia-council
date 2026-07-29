@@ -5,6 +5,8 @@ import {
   AGENT_RUN_STATUSES,
   canTransitionFragmentStatus,
   FRAGMENT_STATUS_TRANSITIONS,
+  ModelProfileRegistry,
+  ModelSelectionError,
   RUN_EVENT_TYPES,
   type CouncilEvent,
 } from "../src/index.js";
@@ -54,5 +56,149 @@ describe("assembly domain vocabulary", () => {
     expect(canTransitionFragmentStatus("kept", "composted")).toBe(true);
     expect(canTransitionFragmentStatus("composted", "kept")).toBe(false);
     expect(canTransitionFragmentStatus("kept", "kept")).toBe(false);
+  });
+});
+
+describe("per-agent model profile selection", () => {
+  const registry = new ModelProfileRegistry({
+    providers: [
+      {
+        id: "codex-cli",
+        label: "Codex CLI",
+        adapter: "codex-cli",
+        locality: "remote",
+        concurrency: 3,
+      },
+      {
+        id: "llama-local",
+        label: "llama.cpp local",
+        adapter: "openai-compatible",
+        locality: "local",
+        concurrency: 1,
+      },
+    ],
+    models: [
+      {
+        id: "codex-default",
+        label: "Codex default",
+        providerId: "codex-cli",
+      },
+      {
+        id: "local-qwen",
+        label: "Qwen local",
+        providerId: "llama-local",
+        model: "qwen2.5-coder-7b",
+      },
+    ],
+    agentPolicies: [
+      {
+        agentId: "architect",
+        defaultModelProfileId: "codex-default",
+        allowedModelProfileIds: ["codex-default", "local-qwen"],
+      },
+      {
+        agentId: "archivist",
+        defaultModelProfileId: "local-qwen",
+        allowedModelProfileIds: ["local-qwen", "codex-default"],
+      },
+    ],
+    councilDefaultModelProfileId: "codex-default",
+  });
+
+  it("resolves independent defaults for each agent", () => {
+    expect(registry.resolve({ agentId: "architect" })).toMatchObject({
+      agentId: "architect",
+      providerProfileId: "codex-cli",
+      modelProfileId: "codex-default",
+      locality: "remote",
+    });
+    expect(registry.resolve({ agentId: "archivist" })).toMatchObject({
+      agentId: "archivist",
+      providerProfileId: "llama-local",
+      modelProfileId: "local-qwen",
+      model: "qwen2.5-coder-7b",
+      locality: "local",
+    });
+  });
+
+  it("allows an explicit selection without mutating another agent", () => {
+    const architect = registry.resolve({
+      agentId: "architect",
+      explicitModelProfileId: "local-qwen",
+    });
+    const archivist = registry.resolve({ agentId: "archivist" });
+
+    expect(architect.modelProfileId).toBe("local-qwen");
+    expect(archivist.modelProfileId).toBe("local-qwen");
+    expect(registry.resolve({ agentId: "architect" }).modelProfileId).toBe(
+      "codex-default",
+    );
+  });
+
+  it("rejects a model outside the agent allowlist", () => {
+    const restricted = new ModelProfileRegistry({
+      providers: registry.listProviders(),
+      models: registry.listModels(),
+      agentPolicies: [
+        {
+          agentId: "guardian",
+          defaultModelProfileId: "codex-default",
+          allowedModelProfileIds: ["codex-default"],
+        },
+      ],
+    });
+
+    expect(() =>
+      restricted.resolve({
+        agentId: "guardian",
+        explicitModelProfileId: "local-qwen",
+      }),
+    ).toThrowError(
+      expect.objectContaining<ModelSelectionError>({
+        code: "MODEL_PROFILE_NOT_ALLOWED",
+      }),
+    );
+  });
+
+  it("rejects invalid provider concurrency and dangling providers", () => {
+    expect(
+      () =>
+        new ModelProfileRegistry({
+          providers: [
+            {
+              id: "broken",
+              label: "Broken",
+              adapter: "fake",
+              locality: "local",
+              concurrency: 0,
+            },
+          ],
+          models: [],
+          agentPolicies: [],
+        }),
+    ).toThrowError(
+      expect.objectContaining<ModelSelectionError>({
+        code: "PROVIDER_CONCURRENCY_INVALID",
+      }),
+    );
+
+    expect(
+      () =>
+        new ModelProfileRegistry({
+          providers: [],
+          models: [
+            {
+              id: "orphan",
+              label: "Orphan",
+              providerId: "missing",
+            },
+          ],
+          agentPolicies: [],
+        }),
+    ).toThrowError(
+      expect.objectContaining<ModelSelectionError>({
+        code: "MODEL_PROVIDER_NOT_FOUND",
+      }),
+    );
   });
 });
