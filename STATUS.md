@@ -19,7 +19,7 @@ fallback silencieux.
 ## Preuves actuelles
 
 - typecheck, lint et build réussis sur les cinq projets du workspace ;
-- 110 tests réussis : 4 domaine, 18 protocole, 2 registre, 73 daemon et 13 UI ;
+- 112 tests réussis : 4 domaine, 18 protocole, 2 registre, 75 daemon et 13 UI ;
 - vertical slice OpenAI-compatible réussi avec un endpoint loopback synthétique,
   un worker séparé, authentification Bearer, contribution et métriques journalisées ;
 - smoke test réel réussi avec Qwen3-4B Q4_K_M sur la RTX : une voix Architect

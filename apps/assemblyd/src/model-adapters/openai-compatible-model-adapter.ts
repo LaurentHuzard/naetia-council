@@ -164,21 +164,18 @@ export class OpenAiCompatibleModelAdapter implements ModelAdapter {
 
     let raw: string;
     try {
-      raw = await response.text();
+      raw = await readBoundedResponse(response, signal);
     } catch (error) {
       if (isAbortError(error)) {
+        throw error;
+      }
+      if (error instanceof ModelAdapterError) {
         throw error;
       }
       throw new ModelAdapterError(
         "OPENAI_COMPATIBLE_OUTPUT_INVALID",
         "The OpenAI-compatible provider response could not be read.",
         { cause: error },
-      );
-    }
-    if (new TextEncoder().encode(raw).byteLength > MAX_RESPONSE_BYTES) {
-      throw new ModelAdapterError(
-        "OPENAI_COMPATIBLE_OUTPUT_INVALID",
-        "The OpenAI-compatible provider returned more output than The Assembly accepts.",
       );
     }
 
@@ -225,6 +222,52 @@ function normalizeUsage(usage: z.infer<typeof usageSchema>): ModelUsage {
     reasoningOutputTokens:
       usage.completion_tokens_details?.reasoning_tokens ?? 0,
   };
+}
+
+async function readBoundedResponse(
+  response: Response,
+  signal: AbortSignal,
+): Promise<string> {
+  const declaredLength = response.headers.get("content-length");
+  if (
+    declaredLength !== null &&
+    Number.isFinite(Number(declaredLength)) &&
+    Number(declaredLength) > MAX_RESPONSE_BYTES
+  ) {
+    throw responseTooLargeError();
+  }
+  if (response.body === null) {
+    return "";
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytesRead = 0;
+  let content = "";
+  try {
+    while (true) {
+      throwIfAborted(signal);
+      const chunk = await reader.read();
+      if (chunk.done) {
+        return content + decoder.decode();
+      }
+      bytesRead += chunk.value.byteLength;
+      if (bytesRead > MAX_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw responseTooLargeError();
+      }
+      content += decoder.decode(chunk.value, { stream: true });
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function responseTooLargeError(): ModelAdapterError {
+  return new ModelAdapterError(
+    "OPENAI_COMPATIBLE_OUTPUT_INVALID",
+    "The OpenAI-compatible provider returned more output than The Assembly accepts.",
+  );
 }
 
 function chunkContribution(content: string): readonly string[] {

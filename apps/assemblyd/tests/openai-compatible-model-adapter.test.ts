@@ -106,6 +106,42 @@ describe("OpenAiCompatibleModelAdapter", () => {
     await expect(pending).rejects.not.toThrow("remote-secret-and-stack-trace");
   });
 
+  it("reports transport failures without exposing their details", async () => {
+    const pending = collect(
+      adapter({
+        fetcher: vi
+          .fn<typeof fetch>()
+          .mockRejectedValue(new Error("private-host-and-network-details")),
+      }),
+    );
+
+    await expect(pending).rejects.toMatchObject({
+      code: "OPENAI_COMPATIBLE_UNAVAILABLE",
+      message: "The configured OpenAI-compatible provider is unavailable.",
+    });
+    await expect(pending).rejects.not.toThrow(
+      "private-host-and-network-details",
+    );
+  });
+
+  it("bounds the response body while reading it", async () => {
+    const pending = collect(
+      adapter({
+        fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+          new Response("x".repeat(512 * 1024 + 1), {
+            status: 200,
+          }),
+        ),
+      }),
+    );
+
+    await expect(pending).rejects.toMatchObject({
+      code: "OPENAI_COMPATIBLE_OUTPUT_INVALID",
+      message:
+        "The OpenAI-compatible provider returned more output than The Assembly accepts.",
+    });
+  });
+
   it("rejects malformed and empty completions explicitly", async () => {
     await expect(
       collect(
