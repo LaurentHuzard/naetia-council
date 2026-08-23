@@ -58,6 +58,7 @@ export interface OpenAiCompatibleModelAdapterOptions {
   readonly maxTokens: number;
   readonly enableThinking?: boolean;
   readonly revealDelayMs?: number;
+  readonly responseFormat?: "json_object";
   readonly fetcher?: typeof fetch;
 }
 
@@ -68,6 +69,7 @@ export class OpenAiCompatibleModelAdapter implements ModelAdapter {
   readonly #maxTokens: number;
   readonly #enableThinking: boolean | undefined;
   readonly #revealDelayMs: number;
+  readonly #responseFormat: "json_object" | undefined;
   readonly #fetcher: typeof fetch;
 
   constructor(options: OpenAiCompatibleModelAdapterOptions) {
@@ -78,6 +80,7 @@ export class OpenAiCompatibleModelAdapter implements ModelAdapter {
     this.#enableThinking = options.enableThinking;
     this.#revealDelayMs =
       options.revealDelayMs ?? DEFAULT_REVEAL_DELAY_MS;
+    this.#responseFormat = options.responseFormat;
     this.#fetcher = options.fetcher ?? fetch;
   }
 
@@ -140,6 +143,9 @@ export class OpenAiCompatibleModelAdapter implements ModelAdapter {
                   enable_thinking: this.#enableThinking,
                 },
               }),
+          ...(this.#responseFormat === undefined
+            ? {}
+            : { response_format: { type: this.#responseFormat } }),
           stream: false,
         }),
         signal,

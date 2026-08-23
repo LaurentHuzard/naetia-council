@@ -9,9 +9,9 @@ type QuestPanelProps = {
 };
 
 export function QuestPanel({ health, councilSession }: QuestPanelProps) {
-  const [title, setTitle] = useState('Ouvrir la porte du royaume');
+  const [title, setTitle] = useState('Clarifier la prochaine décision');
   const [context, setContext] = useState(
-    'Le royaume est scellé. Trouver et ouvrir la porte sans déclencher les anciens verrous ni trahir les pactes en vigueur.',
+    'Expose la situation, les contraintes déjà connues et ce qui rend la décision difficile.',
   );
   const hasSession = councilSession.session !== null;
   const hasPreparedSession = hasSession && councilSession.session!.runs.length === 0;

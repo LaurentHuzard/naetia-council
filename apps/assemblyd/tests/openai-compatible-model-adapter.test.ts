@@ -32,6 +32,7 @@ describe("OpenAiCompatibleModelAdapter", () => {
         apiKey: "secret-for-test",
         enableThinking: false,
         revealDelayMs: 0,
+        responseFormat: "json_object",
       }),
     );
 
@@ -46,6 +47,7 @@ describe("OpenAiCompatibleModelAdapter", () => {
       model: "local-council-model",
       max_tokens: 512,
       chat_template_kwargs: { enable_thinking: false },
+      response_format: { type: "json_object" },
       stream: false,
       messages: [
         {

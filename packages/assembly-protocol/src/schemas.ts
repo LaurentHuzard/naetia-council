@@ -113,6 +113,24 @@ export const modelExecutionSchema = z
   })
   .strict();
 
+export const decisionDraftSchema = z
+  .object({
+    statement: z.string().trim().min(1).max(500),
+    rationale: z.string().trim().min(1).max(5_000),
+    objection: z.string().trim().min(1).max(5_000),
+    reviewCondition: z.string().trim().min(1).max(2_000),
+    nextSmallStep: z.string().trim().min(1).max(1_000),
+  })
+  .strict();
+
+export const decisionDraftResultSchema = z
+  .object({
+    draft: decisionDraftSchema,
+    sourceFragmentIds: uniqueIdentifierListSchema,
+    modelExecution: modelExecutionSchema,
+  })
+  .strict();
+
 export const questSchema = z
   .object({
     id: identifierSchema,
@@ -572,6 +590,10 @@ export type SessionIndexMessage = z.infer<typeof sessionIndexSchema>;
 export type ModelAdapterMessage = z.infer<typeof modelAdapterSchema>;
 export type ModelUsageMessage = z.infer<typeof modelUsageSchema>;
 export type ModelExecutionMessage = z.infer<typeof modelExecutionSchema>;
+export type DecisionDraftMessage = z.infer<typeof decisionDraftSchema>;
+export type DecisionDraftResultMessage = z.infer<
+  typeof decisionDraftResultSchema
+>;
 export type CouncilEventMessage = z.infer<typeof councilEventSchema>;
 export type AssemblyCommand = z.infer<typeof assemblyCommandSchema>;
 export type AgentWorkerModelOptions = z.infer<typeof agentWorkerModelOptionsSchema>;

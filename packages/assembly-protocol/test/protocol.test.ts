@@ -5,6 +5,7 @@ import {
   agentWorkerEventSchema,
   assemblyCommandSchema,
   councilEventSchema,
+  decisionDraftResultSchema,
   parseAgentWorkerCommand,
   sessionIndexSchema,
   sessionSummarySchema,
@@ -230,6 +231,32 @@ describe("assembly commands", () => {
 });
 
 describe("Council outcomes", () => {
+  it("accepts a sourced decision draft and rejects incomplete model output", () => {
+    const candidate = {
+      draft: {
+        statement: "Tester une décision réversible.",
+        rationale: "Une preuve courte réduit l’incertitude.",
+        objection: "Une contrainte peut manquer.",
+        reviewCondition: "Réviser si le test échoue.",
+        nextSmallStep: "Tester pendant dix minutes.",
+      },
+      sourceFragmentIds: ["fragment-architect"],
+      modelExecution: {
+        adapter: "openai-compatible",
+        model: "local-council-model",
+        durationMs: 720,
+      },
+    };
+
+    expect(decisionDraftResultSchema.parse(candidate)).toEqual(candidate);
+    expect(
+      decisionDraftResultSchema.safeParse({
+        ...candidate,
+        draft: { ...candidate.draft, objection: undefined },
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects a forged decision without provenance", () => {
     const result = councilEventSchema.safeParse({
       id: "event-decision-1",

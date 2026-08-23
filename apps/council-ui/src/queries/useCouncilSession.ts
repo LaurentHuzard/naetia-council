@@ -11,6 +11,7 @@ import {
   conveneCouncilSession,
   createCouncilRevision,
   createCouncilSession,
+  draftCouncilDecision,
   fetchCouncilSession,
   forgeCouncilDecision,
   type AgentRunSnapshot,
@@ -130,6 +131,15 @@ export function useCouncilSession() {
     },
   });
 
+  const decisionDraftMutation = useMutation({
+    mutationFn: (fragmentIds: readonly string[]) => {
+      if (activeSessionId === null) {
+        throw new Error('Aucune session active à synthétiser.');
+      }
+      return draftCouncilDecision(activeSessionId, fragmentIds);
+    },
+  });
+
   const revisionMutation = useMutation({
     mutationFn: (input: CreateCouncilRevisionInput) => {
       if (activeSessionId === null) {
@@ -161,6 +171,7 @@ export function useCouncilSession() {
     conveneMutation.isPending ||
     cancelMutation.isPending ||
     fragmentMutation.isPending ||
+    decisionDraftMutation.isPending ||
     forgeMutation.isPending ||
     revisionMutation.isPending ||
     resumeMutation.isPending;
@@ -169,6 +180,7 @@ export function useCouncilSession() {
     createMutation.reset();
     cancelMutation.reset();
     fragmentMutation.reset();
+    decisionDraftMutation.reset();
     forgeMutation.reset();
     revisionMutation.reset();
     resumeMutation.reset();
@@ -209,6 +221,9 @@ export function useCouncilSession() {
     actingFragmentId: fragmentMutation.isPending
       ? (fragmentMutation.variables?.fragmentId ?? null)
       : null,
+    draftDecision: decisionDraftMutation.mutateAsync,
+    decisionDraftError: decisionDraftMutation.error,
+    isDraftingDecision: decisionDraftMutation.isPending,
     forgeDecision: forgeMutation.mutate,
     forgeError: forgeMutation.error,
     isForging: forgeMutation.isPending,

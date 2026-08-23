@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 
 import type {
+  CouncilDecisionDraftResult,
   CouncilSessionSnapshot,
   ForgeCouncilDecisionInput,
 } from '../../api/assembly';
@@ -8,12 +9,25 @@ import { toAgentCardModel } from '../council/agent-definitions';
 
 type ForgePanelProps = {
   session: CouncilSessionSnapshot | null;
+  canDraft: boolean;
   isForging: boolean;
-  error: Error | null;
+  isDrafting: boolean;
+  forgeError: Error | null;
+  draftError: Error | null;
+  onDraft: (fragmentIds: readonly string[]) => Promise<CouncilDecisionDraftResult>;
   onForge: (input: ForgeCouncilDecisionInput) => void;
 };
 
-export function ForgePanel({ session, isForging, error, onForge }: ForgePanelProps) {
+export function ForgePanel({
+  session,
+  canDraft,
+  isForging,
+  isDrafting,
+  forgeError,
+  draftError,
+  onDraft,
+  onForge,
+}: ForgePanelProps) {
   const [selectedFragmentIds, setSelectedFragmentIds] = useState<string[]>([]);
   const [statement, setStatement] = useState('');
   const [rationale, setRationale] = useState('');
@@ -48,6 +62,21 @@ export function ForgePanel({ session, isForging, error, onForge }: ForgePanelPro
     });
   };
 
+  const handleDraft = async () => {
+    if (validSelection.length === 0 || isDrafting || isForging) return;
+    try {
+      const result = await onDraft(validSelection);
+      setSelectedFragmentIds(result.sourceFragmentIds);
+      setStatement(result.draft.statement);
+      setRationale(result.draft.rationale);
+      setObjection(result.draft.objection);
+      setReviewCondition(result.draft.reviewCondition);
+      setNextSmallStep(result.draft.nextSmallStep);
+    } catch {
+      // The mutation exposes the explicit provider or validation error below.
+    }
+  };
+
   return (
     <section className="journey-panel forge-panel" aria-labelledby="forge-title">
       <div className="section-kicker">Forge</div>
@@ -78,6 +107,7 @@ export function ForgePanel({ session, isForging, error, onForge }: ForgePanelPro
                   <input
                     type="checkbox"
                     checked={validSelection.includes(fragment.id)}
+                    disabled={isDrafting || isForging}
                     onChange={(event) =>
                       setSelectedFragmentIds((current) =>
                         event.target.checked
@@ -98,7 +128,7 @@ export function ForgePanel({ session, isForging, error, onForge }: ForgePanelPro
 
           <div className="forge-fields">
             <label>
-              <span>Décision</span>
+              <span>Décision vivante</span>
               <textarea
                 value={statement}
                 maxLength={500}
@@ -118,7 +148,7 @@ export function ForgePanel({ session, isForging, error, onForge }: ForgePanelPro
               />
             </label>
             <label>
-              <span>Objection conservée</span>
+              <span>Objection ouverte</span>
               <textarea
                 value={objection}
                 maxLength={5_000}
@@ -146,12 +176,38 @@ export function ForgePanel({ session, isForging, error, onForge }: ForgePanelPro
             </label>
           </div>
 
-          <button className="primary-button forge-submit" type="submit" disabled={!canForge || isForging}>
-            {isForging ? 'Forge en cours…' : 'Forger la décision'}
-          </button>
-          {error !== null ? (
+          <div className="forge-actions">
+            {canDraft ? (
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={validSelection.length === 0 || isDrafting || isForging}
+                onClick={() => void handleDraft()}
+              >
+                {isDrafting ? 'Synthèse en cours…' : 'Préremplir avec l’orchestrateur'}
+              </button>
+            ) : null}
+            <button
+              className="primary-button forge-submit"
+              type="submit"
+              disabled={!canForge || isForging || isDrafting}
+            >
+              {isForging ? 'Forge en cours…' : 'Forger la décision'}
+            </button>
+            <p>
+              {canDraft
+                ? 'Le brouillon reste local au formulaire : relis-le et modifie-le avant de forger.'
+                : 'Le préremplissage est disponible avec le provider OpenAI-compatible ; la saisie manuelle reste active.'}
+            </p>
+          </div>
+          {draftError !== null ? (
             <p className="panel-error" role="alert">
-              {error.message}
+              Préremplissage impossible : {draftError.message}
+            </p>
+          ) : null}
+          {forgeError !== null ? (
+            <p className="panel-error" role="alert">
+              {forgeError.message}
             </p>
           ) : null}
         </form>

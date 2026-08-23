@@ -1153,6 +1153,26 @@ textarea:focus-visible {
   grid-column: 1 / -1;
 }
 
+.forge-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.forge-actions .primary-button {
+  margin: 0;
+}
+
+.forge-actions p {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
 .return-panel {
   border-top: 4px solid var(--teal);
   background:
@@ -1551,6 +1571,21 @@ textarea:focus-visible {
 
   .forge-submit {
     width: 100%;
+  }
+
+  .forge-actions {
+    align-items: stretch;
+    flex-direction: column;
+    flex-wrap: nowrap;
+  }
+
+  .forge-actions .secondary-button {
+    width: 100%;
+  }
+
+  .forge-actions p {
+    width: 100%;
+    flex-basis: auto;
   }
 
   .return-revision {
