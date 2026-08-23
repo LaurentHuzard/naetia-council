@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { buildApp } from "../src/api/app.js";
+import type { DecisionDraftOrchestratorPort } from "../src/orchestration/decision-draft-orchestrator.js";
 
 const apps: ReturnType<typeof buildApp>[] = [];
 
@@ -329,6 +330,82 @@ describe.sequential("assemblyd HTTP API", () => {
     expect(lockedFragment.json()).toMatchObject({
       error: "FRAGMENT_TRANSITION_CONFLICT",
     });
+  });
+
+  it("returns a model-backed decision draft without changing the journal", async () => {
+    let receivedSessionId: string | undefined;
+    let receivedFragmentIds: readonly string[] | undefined;
+    const decisionDraftOrchestrator: DecisionDraftOrchestratorPort = {
+      async draft(session, fragmentIds) {
+        receivedSessionId = session.sessionId;
+        receivedFragmentIds = fragmentIds;
+        return {
+          draft: {
+            statement: "Tester une décision réversible.",
+            rationale: "Le fragment conservé propose une preuve courte.",
+            objection: "Une contrainte peut encore manquer.",
+            reviewCondition: "Réviser si le test échoue deux fois.",
+            nextSmallStep: "Lancer le test pendant dix minutes.",
+          },
+          sourceFragmentIds: [...fragmentIds],
+          modelExecution: {
+            adapter: "openai-compatible",
+            model: "local-council-model",
+            durationMs: 720,
+          },
+        };
+      },
+    };
+    const app = trackedApp({ decisionDraftOrchestrator });
+    const creation = await app.inject({
+      method: "POST",
+      url: "/sessions",
+      payload: { quest: { title: "Préparer un brouillon humainement révisable" } },
+    });
+    const created = creation.json<{ sessionId: string }>();
+    await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/convene`,
+    });
+    const completed = await waitForCompletedSession(app, created.sessionId);
+    const sourceFragment = completed.fragments[0]!;
+    const kept = await app.inject({
+      method: "POST",
+      url: `/fragments/${sourceFragment.id}/keep`,
+    });
+    const cursorBeforeDraft = kept.json<SessionResponse>().eventCursor;
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/sessions/${created.sessionId}/decision-draft`,
+      payload: { fragmentIds: [sourceFragment.id] },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      draft: {
+        statement: "Tester une décision réversible.",
+        objection: "Une contrainte peut encore manquer.",
+        reviewCondition: "Réviser si le test échoue deux fois.",
+        nextSmallStep: "Lancer le test pendant dix minutes.",
+      },
+      sourceFragmentIds: [sourceFragment.id],
+      modelExecution: {
+        adapter: "openai-compatible",
+        model: "local-council-model",
+      },
+    });
+    expect(receivedSessionId).toBe(created.sessionId);
+    expect(receivedFragmentIds).toEqual([sourceFragment.id]);
+
+    const afterDraft = await app.inject({
+      method: "GET",
+      url: `/sessions/${created.sessionId}`,
+    });
+    expect(afterDraft.json<SessionResponse>().eventCursor).toBe(
+      cursorBeforeDraft,
+    );
+    expect(afterDraft.json<SessionResponse>().decision).toBeUndefined();
   });
 
   it("creates a linked revision without convening or changing its source", async () => {

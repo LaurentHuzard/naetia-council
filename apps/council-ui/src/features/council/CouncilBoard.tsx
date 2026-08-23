@@ -54,8 +54,12 @@ export function CouncilBoard({ health, councilSession }: CouncilBoardProps) {
       <ForgePanel
         key={`forge:${councilSession.session?.sessionId ?? 'none'}`}
         session={councilSession.session}
+        canDraft={health.data?.modelAdapter === 'openai-compatible'}
         isForging={councilSession.isForging}
-        error={councilSession.forgeError}
+        isDrafting={councilSession.isDraftingDecision}
+        forgeError={councilSession.forgeError}
+        draftError={councilSession.decisionDraftError}
+        onDraft={councilSession.draftDecision}
         onForge={councilSession.forgeDecision}
       />
       <ReturnPanel

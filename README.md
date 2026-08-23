@@ -23,6 +23,7 @@ Cette première expédition couvre les Orbites 0 à 5.4 :
 - une interface qui recharge un snapshot autoritaire et déduplique les signaux ;
 - un fragment durable par contribution terminée ;
 - les dispositions humaines KEEP, CHALLENGE et COMPOST ;
+- un orchestrateur de brouillon qui préremplit cinq champs à partir des seuls fragments KEEP sélectionnés, sans écrire dans le journal ;
 - une Forge qui accepte uniquement des fragments conservés et calcule leur provenance côté serveur ;
 - un Return Point qui réunit décision, objection ouverte, condition de révision et prochain petit geste.
 - un Port local qui liste les huit sessions les plus récentes et permet d’en reprendre explicitement une.
@@ -39,7 +40,8 @@ Browser (React + Vite)
   └─ HTTP commands + snapshot, SSE events
       └─ The Assembly (Fastify, port 4317)
           ├─ journal SQLite → projection reconstruite
-          ├─ orchestrateur
+          ├─ orchestrateur des sessions
+          ├─ orchestrateur de brouillon → provider OpenAI-compatible
           └─ process manager des runs vivants
               ├─ fork → membre convoqué A
               ├─ fork → membre convoqué B
@@ -73,7 +75,7 @@ L’interface est servie par Vite sur `http://127.0.0.1:5173` et relaie `/api` v
 4. Confirmez la convocation, puis attendez les contributions séparées des voix choisies.
 5. Classez chaque fragment avec KEEP, CHALLENGE ou COMPOST.
 6. Sélectionnez au moins un fragment conservé dans la Forge.
-7. Écrivez la décision, sa raison, l’objection à garder, la condition de révision et le prochain petit geste.
+7. Préremplissez facultativement le brouillon avec l’orchestrateur, puis relisez et modifiez la décision vivante, sa raison, l’objection ouverte, la condition de révision et le prochain petit geste.
 8. Forge affiche le Return Point et verrouille la provenance de cette première décision.
 9. Si le contexte change, préparez une révision en décrivant ce qui a changé.
 10. Vérifiez la décision précédente, recomposez sa délégation, puis convoquez-la explicitement.
@@ -119,10 +121,18 @@ localement la contribution par fragments. La durée enregistrée couvre uniqueme
 l’appel HTTP. Les compteurs de tokens sont conservés seulement lorsque le
 provider les fournit.
 
-La clé est transmise uniquement dans l’environnement réduit du processus agent
-qui effectue l’appel ; elle ne traverse ni l’IPC, ni l’API navigateur, ni le
-journal SQLite. Une indisponibilité réseau, un statut HTTP non réussi, un JSON
-invalide ou une réponse vide produit une erreur explicite sur le run concerné,
+Dans la Forge, le bouton `Préremplir avec l’orchestrateur` envoie uniquement les
+fragments KEEP sélectionnés au même provider avec une sortie JSON contrainte.
+Le résultat préremplit les cinq champs mais ne forge pas la décision et ne crée
+aucun événement : tant que l’humain ne confirme pas la Forge, le brouillon reste
+modifiable et n’existe que dans le formulaire. Un JSON libre, incomplet ou
+invalide produit une erreur explicite, sans fallback.
+
+La clé reste dans l’environnement du daemon. Elle est copiée dans l’environnement
+réduit des processus agents pour leurs contributions et utilisée directement par
+l’orchestrateur de brouillon ; elle ne traverse ni l’IPC, ni l’API navigateur,
+ni le journal SQLite. Une indisponibilité réseau, un statut HTTP non réussi, un JSON
+invalide ou une réponse vide produit une erreur explicite sur l’appel concerné,
 sans fallback silencieux vers le faux modèle ou Codex CLI.
 
 `OPENAI_COMPATIBLE_MAX_TOKENS` vaut 512 par défaut,
@@ -176,6 +186,7 @@ SQLite utilise par défaut `data/naetia-council.sqlite`. Le fichier est créé a
 - le downgrade vers un ancien binaire n’est pas supporté après l’écriture d’un lien `revisionOf` ;
 - le streaming Codex est une révélation locale post-réponse, pas encore un streaming natif token par token ;
 - les modes réels consomment des ressources et dépendent soit du CLI Codex, soit d’un endpoint OpenAI-compatible disponible ; le faux modèle reste le mode par défaut des tests ;
+- le préremplissage orchestré de la Forge est actuellement disponible uniquement avec le provider OpenAI-compatible ; les modes fake et Codex CLI exigent une saisie humaine ;
 - chaque rafale SSE provoque encore une relecture coalescée du snapshot complet ;
 - un run interrompu par un arrêt brutal est marqué `DAEMON_RESTARTED` et n’est jamais relancé automatiquement ;
 - une panne d’écriture SQLite pendant un streaming place le daemon en état dégradé `503` jusqu’à son redémarrage ;

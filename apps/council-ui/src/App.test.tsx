@@ -170,7 +170,7 @@ describe('Naetia Council shell', () => {
       sessionId: 'session-1',
       quest: {
         questId: 'quest-1',
-        title: 'Ouvrir la porte du royaume',
+        title: 'Clarifier la prochaine décision',
       },
       status: 'running',
       createdAt: '2026-07-19T12:00:00.000Z',
@@ -465,11 +465,22 @@ describe('Naetia Council shell', () => {
       events: [],
     };
     let snapshot = baseSnapshot;
+    let releaseDecisionDraft: () => void = () => undefined;
+    const decisionDraftBarrier = new Promise<void>((resolve) => {
+      releaseDecisionDraft = resolve;
+    });
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input);
         if (path === '/api/health') {
-          return new Response(JSON.stringify({ status: 'ok' }), { status: 200 });
+          return new Response(
+            JSON.stringify({
+              status: 'ok',
+              modelAdapter: 'openai-compatible',
+              model: 'local-council-model',
+            }),
+            { status: 200 },
+          );
         }
         if (path === '/api/sessions/session-outcome') {
           return new Response(JSON.stringify(snapshot), { status: 200 });
@@ -497,6 +508,31 @@ describe('Naetia Council shell', () => {
             ),
           };
           return new Response(JSON.stringify(snapshot), { status: 200 });
+        }
+        if (path === '/api/sessions/session-outcome/decision-draft') {
+          expect(JSON.parse(String(init?.body))).toEqual({
+            fragmentIds: ['fragment-architect'],
+          });
+          await decisionDraftBarrier;
+          return new Response(
+            JSON.stringify({
+              draft: {
+                statement: 'Ouvrir un passage réversible.',
+                rationale:
+                  'Le test réduit l’incertitude sans alourdir la quête.',
+                objection: 'La fatigue peut fausser la lecture.',
+                reviewCondition: 'Réviser si la confusion augmente.',
+                nextSmallStep: 'Tester pendant dix minutes.',
+              },
+              sourceFragmentIds: ['fragment-architect'],
+              modelExecution: {
+                adapter: 'openai-compatible',
+                model: 'local-council-model',
+                durationMs: 850,
+              },
+            }),
+            { status: 200 },
+          );
         }
         if (path === '/api/sessions/session-outcome/forge') {
           expect(JSON.parse(String(init?.body))).toMatchObject({
@@ -576,21 +612,36 @@ describe('Naetia Council shell', () => {
     fireEvent.click(
       within(forgePanel).getByRole('checkbox', { name: /Architect/ }),
     );
-    fireEvent.change(screen.getByLabelText('Décision'), {
-      target: { value: 'Ouvrir un passage réversible.' },
-    });
-    fireEvent.change(screen.getByLabelText('Pourquoi maintenant ?'), {
-      target: { value: 'Le test réduit l’incertitude sans alourdir la quête.' },
-    });
-    fireEvent.change(screen.getByLabelText('Objection conservée'), {
-      target: { value: 'La fatigue peut fausser la lecture.' },
-    });
-    fireEvent.change(screen.getByLabelText('Condition de révision'), {
-      target: { value: 'Réviser si la confusion augmente.' },
-    });
-    fireEvent.change(screen.getByLabelText('Prochain petit geste'), {
-      target: { value: 'Tester pendant dix minutes.' },
-    });
+    fireEvent.click(
+      within(forgePanel).getByRole('button', {
+        name: 'Préremplir avec l’orchestrateur',
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        within(forgePanel).getByRole('button', { name: 'Synthèse en cours…' }),
+      ).toBeDisabled(),
+    );
+    expect(screen.getByLabelText('Décision vivante')).toBeDisabled();
+    releaseDecisionDraft();
+    await waitFor(() =>
+      expect(screen.getByLabelText('Décision vivante')).toHaveValue(
+        'Ouvrir un passage réversible.',
+      ),
+    );
+    expect(screen.getByLabelText('Décision vivante')).toBeEnabled();
+    expect(screen.getByLabelText('Pourquoi maintenant ?')).toHaveValue(
+      'Le test réduit l’incertitude sans alourdir la quête.',
+    );
+    expect(screen.getByLabelText('Objection ouverte')).toHaveValue(
+      'La fatigue peut fausser la lecture.',
+    );
+    expect(screen.getByLabelText('Condition de révision')).toHaveValue(
+      'Réviser si la confusion augmente.',
+    );
+    expect(screen.getByLabelText('Prochain petit geste')).toHaveValue(
+      'Tester pendant dix minutes.',
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Forger la décision' }));
 
     const returnPanel = await screen.findByRole('region', {
@@ -756,7 +807,7 @@ describe('Naetia Council shell', () => {
     ).toBeVisible();
     expect(useCouncilUiStore.getState().activeSessionId).toBeNull();
     expect(localStorage.getItem('naetia-council-ui')).toBeNull();
-    expect(screen.getByDisplayValue('Ouvrir la porte du royaume')).toBeEnabled();
+    expect(screen.getByDisplayValue('Clarifier la prochaine décision')).toBeEnabled();
   });
 
   it('clears Forge drafts when the human resumes another session', async () => {
@@ -831,7 +882,7 @@ describe('Naetia Council shell', () => {
     useCouncilUiStore.setState({ activeSessionId: 'session-a' });
 
     renderApp();
-    fireEvent.change(await screen.findByLabelText('Décision'), {
+    fireEvent.change(await screen.findByLabelText('Décision vivante'), {
       target: { value: 'Brouillon de la quête A' },
     });
     const sessionBItem = screen.getByText('Quête B').closest('li');
@@ -840,7 +891,7 @@ describe('Naetia Council shell', () => {
     );
 
     expect(await screen.findByDisplayValue('Quête B')).toBeDisabled();
-    expect(screen.getByLabelText('Décision')).toHaveValue('');
+    expect(screen.getByLabelText('Décision vivante')).toHaveValue('');
     expect(localStorage.getItem('naetia-council-ui')).toContain('session-b');
   });
 
@@ -1084,7 +1135,7 @@ describe('Naetia Council shell', () => {
     } as const;
     const createdSnapshot = {
       sessionId: 'session-1',
-      quest: { questId: 'quest-1', title: 'Ouvrir la porte du royaume' },
+      quest: { questId: 'quest-1', title: 'Clarifier la prochaine décision' },
       status: 'created',
       createdAt: '2026-07-19T12:00:00.000Z',
       eventCursor: 1,

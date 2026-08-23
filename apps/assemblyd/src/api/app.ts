@@ -6,6 +6,7 @@ import Fastify, {
 } from "fastify";
 import {
   agentSelectionSchema,
+  decisionDraftResultSchema,
   sessionIndexSchema,
 } from "@naetia/assembly-protocol";
 import { z } from "zod";
@@ -14,10 +15,17 @@ import {
   resolveModelRuntime,
   type ModelRuntime,
 } from "../model-adapters/model-runtime.js";
+import { ModelAdapterError } from "../model-adapters/model-adapter.js";
+import { OpenAiCompatibleModelAdapter } from "../model-adapters/openai-compatible-model-adapter.js";
 import {
   CouncilCommandError,
   CouncilOrchestrator,
 } from "../orchestration/council-orchestrator.js";
+import {
+  DecisionDraftError,
+  DecisionDraftOrchestrator,
+  type DecisionDraftOrchestratorPort,
+} from "../orchestration/decision-draft-orchestrator.js";
 import { resolveAssemblyDatabasePath } from "../persistence/database-path.js";
 import {
   JournalError,
@@ -75,6 +83,16 @@ const forgeDecisionBodySchema = z
   })
   .strict();
 
+const decisionDraftBodySchema = z
+  .object({
+    fragmentIds: z
+      .array(z.string().uuid())
+      .min(1)
+      .max(20)
+      .refine((identifiers) => new Set(identifiers).size === identifiers.length),
+  })
+  .strict();
+
 const createRevisionBodySchema = z
   .object({
     decisionId: z.string().uuid(),
@@ -103,6 +121,7 @@ export interface BuildAppOptions {
   readonly databasePath?: string;
   readonly databaseBusyTimeoutMs?: number;
   readonly modelRuntime?: ModelRuntime;
+  readonly decisionDraftOrchestrator?: DecisionDraftOrchestratorPort;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -129,6 +148,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     (modelRuntime.adapter === "fake"
       ? parseFakeModelDelay(process.env["FAKE_MODEL_DELAY_MS"])
       : DEFAULT_FAKE_MODEL_DELAY_MS);
+  const decisionDraftOrchestrator =
+    options.decisionDraftOrchestrator ??
+    createDecisionDraftOrchestrator(modelRuntime);
   const eventStreams = new Set<ServerResponse>();
 
   app.get("/health", async () => {
@@ -160,6 +182,14 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
         error: error.code,
         message: error.message,
       });
+    }
+    if (error instanceof DecisionDraftError) {
+      return reply
+        .code(error.code === "DECISION_DRAFT_OUTPUT_INVALID" ? 502 : 409)
+        .send({ error: error.code, message: error.message });
+    }
+    if (error instanceof ModelAdapterError) {
+      return reply.code(502).send({ error: error.code, message: error.message });
     }
     return reply.send(error);
   });
@@ -455,6 +485,57 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     return session;
   });
 
+  app.post("/sessions/:sessionId/decision-draft", async (request, reply) => {
+    const params = idParamsSchema.safeParse(request.params);
+    const body = decisionDraftBodySchema.safeParse(request.body);
+    if (!params.success || !body.success) {
+      return reply.code(400).send({
+        error: "INVALID_REQUEST",
+        message: "Valid and distinct kept fragment ids are required",
+      });
+    }
+    const session = orchestrator.getSession(params.data.sessionId);
+    if (session === undefined) {
+      return reply.code(404).send({
+        error: "SESSION_NOT_FOUND",
+        message: "Council session not found",
+      });
+    }
+    if (decisionDraftOrchestrator === undefined) {
+      return reply.code(503).send({
+        error: "DECISION_DRAFT_UNAVAILABLE",
+        message:
+          "Decision drafting requires a configured OpenAI-compatible model.",
+      });
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      modelRuntime.runTimeoutMs,
+    );
+    timeout.unref();
+    try {
+      return decisionDraftResultSchema.parse(
+        await decisionDraftOrchestrator.draft(
+          session,
+          body.data.fragmentIds,
+          controller.signal,
+        ),
+      );
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return reply.code(504).send({
+          error: "DECISION_DRAFT_TIMEOUT",
+          message: "The decision orchestrator timed out.",
+        });
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
+
   app.addHook("preClose", async () => {
     for (const response of eventStreams) {
       response.end();
@@ -467,6 +548,33 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   });
 
   return app;
+}
+
+function createDecisionDraftOrchestrator(
+  modelRuntime: ModelRuntime,
+): DecisionDraftOrchestrator | undefined {
+  if (modelRuntime.model.adapter !== "openai-compatible") {
+    return undefined;
+  }
+  return new DecisionDraftOrchestrator(
+    new OpenAiCompatibleModelAdapter({
+      url: modelRuntime.model.url,
+      model: modelRuntime.model.model,
+      maxTokens: modelRuntime.model.maxTokens,
+      ...(modelRuntime.model.enableThinking === undefined
+        ? {}
+        : { enableThinking: modelRuntime.model.enableThinking }),
+      revealDelayMs: 0,
+      responseFormat: "json_object",
+      ...(modelRuntime.workerEnvironment["OPENAI_COMPATIBLE_API_KEY"] ===
+      undefined
+        ? {}
+        : {
+            apiKey:
+              modelRuntime.workerEnvironment["OPENAI_COMPATIBLE_API_KEY"],
+          }),
+    }),
+  );
 }
 
 function parseFakeModelDelay(value: string | undefined): number {

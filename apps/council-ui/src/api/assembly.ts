@@ -2,6 +2,7 @@ import {
   agentDefinitionSchema,
   agentRoleSchema,
   councilEventSchema,
+  decisionDraftResultSchema,
   decisionRevisionSchema,
   decisionSchema,
   fragmentSchema,
@@ -9,6 +10,7 @@ import {
   returnPointSchema,
   sessionIndexSchema,
   type CouncilEventMessage,
+  type DecisionDraftResultMessage,
   type AgentDefinitionMessage,
   type AgentRoleMessage,
   type DecisionMessage,
@@ -111,6 +113,8 @@ export type ForgeCouncilDecisionInput = {
   reviewCondition?: string;
   nextSmallStep: string;
 };
+
+export type CouncilDecisionDraftResult = DecisionDraftResultMessage;
 
 export type CreateCouncilRevisionInput = {
   decisionId: string;
@@ -269,6 +273,24 @@ export async function forgeCouncilDecision(
       body: JSON.stringify(input),
     }),
   );
+}
+
+export async function draftCouncilDecision(
+  sessionId: string,
+  fragmentIds: readonly string[],
+): Promise<CouncilDecisionDraftResult> {
+  const payload = await requestJson(
+    `/api/sessions/${encodeURIComponent(sessionId)}/decision-draft`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ fragmentIds }),
+    },
+  );
+  const parsed = decisionDraftResultSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw new Error('The Assembly a renvoyé un brouillon de décision invalide.');
+  }
+  return parsed.data;
 }
 
 async function requestJson(
