@@ -134,6 +134,7 @@ export function ForgePanel({
                 maxLength={500}
                 rows={3}
                 required
+                disabled={isDrafting || isForging}
                 onChange={(event) => setStatement(event.target.value)}
               />
             </label>
@@ -144,6 +145,7 @@ export function ForgePanel({
                 maxLength={5_000}
                 rows={4}
                 required
+                disabled={isDrafting || isForging}
                 onChange={(event) => setRationale(event.target.value)}
               />
             </label>
@@ -153,6 +155,7 @@ export function ForgePanel({
                 value={objection}
                 maxLength={5_000}
                 rows={3}
+                disabled={isDrafting || isForging}
                 onChange={(event) => setObjection(event.target.value)}
               />
             </label>
@@ -162,6 +165,7 @@ export function ForgePanel({
                 value={reviewCondition}
                 maxLength={2_000}
                 rows={3}
+                disabled={isDrafting || isForging}
                 onChange={(event) => setReviewCondition(event.target.value)}
               />
             </label>
@@ -171,6 +175,7 @@ export function ForgePanel({
                 value={nextSmallStep}
                 maxLength={1_000}
                 required
+                disabled={isDrafting || isForging}
                 onChange={(event) => setNextSmallStep(event.target.value)}
               />
             </label>
@@ -196,7 +201,7 @@ export function ForgePanel({
             </button>
             <p>
               {canDraft
-                ? 'Le brouillon reste local au formulaire : relis-le et modifie-le avant de forger.'
+                ? 'Le brouillon n’est pas enregistré : relis-le et modifie-le avant de forger.'
                 : 'Le préremplissage est disponible avec le provider OpenAI-compatible ; la saisie manuelle reste active.'}
             </p>
           </div>

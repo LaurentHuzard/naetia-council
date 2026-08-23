@@ -465,6 +465,10 @@ describe('Naetia Council shell', () => {
       events: [],
     };
     let snapshot = baseSnapshot;
+    let releaseDecisionDraft: () => void = () => undefined;
+    const decisionDraftBarrier = new Promise<void>((resolve) => {
+      releaseDecisionDraft = resolve;
+    });
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input);
@@ -509,6 +513,7 @@ describe('Naetia Council shell', () => {
           expect(JSON.parse(String(init?.body))).toEqual({
             fragmentIds: ['fragment-architect'],
           });
+          await decisionDraftBarrier;
           return new Response(
             JSON.stringify({
               draft: {
@@ -613,10 +618,18 @@ describe('Naetia Council shell', () => {
       }),
     );
     await waitFor(() =>
+      expect(
+        within(forgePanel).getByRole('button', { name: 'Synthèse en cours…' }),
+      ).toBeDisabled(),
+    );
+    expect(screen.getByLabelText('Décision vivante')).toBeDisabled();
+    releaseDecisionDraft();
+    await waitFor(() =>
       expect(screen.getByLabelText('Décision vivante')).toHaveValue(
         'Ouvrir un passage réversible.',
       ),
     );
+    expect(screen.getByLabelText('Décision vivante')).toBeEnabled();
     expect(screen.getByLabelText('Pourquoi maintenant ?')).toHaveValue(
       'Le test réduit l’incertitude sans alourdir la quête.',
     );
