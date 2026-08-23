@@ -17,6 +17,7 @@ Cette première expédition couvre les Orbites 0 à 5.4 :
 - un run et un processus `child_process.fork` uniquement par membre convoqué ;
 - un faux modèle déterministe, progressif, annulable et sans clé API ;
 - un mode Codex CLI optionnel qui lance un appel réel indépendant par run ;
+- un provider OpenAI-compatible optionnel pour un serveur de chat local ;
 - un journal SQLite append-only qui reconstruit les sessions après redémarrage ;
 - un flux SSE rejouable par séquence avec reconnexion native du navigateur ;
 - une interface qui recharge un snapshot autoritaire et déduplique les signaux ;
@@ -96,6 +97,44 @@ pnpm build
 
 `MODEL_ADAPTER=fake` est le mode par défaut. Il ne consomme aucun token, produit plusieurs deltas reproductibles et respecte l’annulation.
 
+Pour utiliser un serveur de chat OpenAI-compatible, notamment llama.cpp sur un
+compute node piloté séparément par TwinPilot :
+
+```bash
+export MODEL_ADAPTER=openai-compatible
+export OPENAI_COMPATIBLE_CHAT_URL=http://compute-host:8003/v1/chat/completions
+export OPENAI_COMPATIBLE_MODEL=local-council-model
+export OPENAI_COMPATIBLE_MAX_TOKENS=384
+export OPENAI_COMPATIBLE_ENABLE_THINKING=false
+read -rsp "Compute API key: " OPENAI_COMPATIBLE_API_KEY; echo
+export OPENAI_COMPATIBLE_API_KEY
+pnpm dev
+```
+
+Le serveur doit charger un modèle **génératif** ; un modèle d’embeddings exposé
+sur `/v1/embeddings` ne peut pas produire les contributions du Council. L’URL,
+l’alias et la clé ne possèdent aucune valeur privée par défaut dans le dépôt.
+The Assembly envoie un `POST /v1/chat/completions` non streamé, puis révèle
+localement la contribution par fragments. La durée enregistrée couvre uniquement
+l’appel HTTP. Les compteurs de tokens sont conservés seulement lorsque le
+provider les fournit.
+
+La clé est transmise uniquement dans l’environnement réduit du processus agent
+qui effectue l’appel ; elle ne traverse ni l’IPC, ni l’API navigateur, ni le
+journal SQLite. Une indisponibilité réseau, un statut HTTP non réussi, un JSON
+invalide ou une réponse vide produit une erreur explicite sur le run concerné,
+sans fallback silencieux vers le faux modèle ou Codex CLI.
+
+`OPENAI_COMPATIBLE_MAX_TOKENS` vaut 512 par défaut,
+`OPENAI_COMPATIBLE_RUN_TIMEOUT_MS` 180 secondes et
+`OPENAI_COMPATIBLE_REVEAL_DELAY_MS` 40 ms.
+`OPENAI_COMPATIBLE_ENABLE_THINKING` est facultatif : lorsqu’il vaut `true` ou
+`false`, l’adaptateur transmet l’extension llama.cpp
+`chat_template_kwargs.enable_thinking`; lorsqu’il est absent, le corps reste
+strictement portable entre providers OpenAI-compatibles. Le cycle de vie distant
+reste hors du code Council : TwinPilot lance et inspecte llama.cpp, tandis que
+Council utilise seulement son endpoint HTTP.
+
 Pour convoquer le Council avec Codex CLI :
 
 ```bash
@@ -136,7 +175,7 @@ SQLite utilise par défaut `data/naetia-council.sqlite`. Le fichier est créé a
 - une décision forgée reste immuable et unique dans sa session ; une décision ne possède qu’une révision directe et les branches concurrentes ne sont pas encore modélisées ;
 - le downgrade vers un ancien binaire n’est pas supporté après l’écriture d’un lien `revisionOf` ;
 - le streaming Codex est une révélation locale post-réponse, pas encore un streaming natif token par token ;
-- le mode Codex consomme des tokens et dépend de la disponibilité du CLI et de sa session locale ; le faux modèle reste le mode par défaut des tests ;
+- les modes réels consomment des ressources et dépendent soit du CLI Codex, soit d’un endpoint OpenAI-compatible disponible ; le faux modèle reste le mode par défaut des tests ;
 - chaque rafale SSE provoque encore une relecture coalescée du snapshot complet ;
 - un run interrompu par un arrêt brutal est marqué `DAEMON_RESTARTED` et n’est jamais relancé automatiquement ;
 - une panne d’écriture SQLite pendant un streaming place le daemon en état dégradé `503` jusqu’à son redémarrage ;

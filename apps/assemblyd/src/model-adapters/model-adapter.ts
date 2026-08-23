@@ -24,7 +24,7 @@ export interface ModelUsage {
 }
 
 export interface ModelExecution {
-  readonly adapter: "fake" | "codex-cli";
+  readonly adapter: "fake" | "codex-cli" | "openai-compatible";
   readonly model?: string;
   readonly durationMs: number;
   readonly usage?: ModelUsage;
@@ -43,7 +43,11 @@ export type ModelAdapterErrorCode =
   | "CODEX_AUTH_MISSING"
   | "CODEX_EXEC_FAILED"
   | "CODEX_OUTPUT_INVALID"
-  | "CODEX_EMPTY_OUTPUT";
+  | "CODEX_EMPTY_OUTPUT"
+  | "OPENAI_COMPATIBLE_UNAVAILABLE"
+  | "OPENAI_COMPATIBLE_HTTP_ERROR"
+  | "OPENAI_COMPATIBLE_OUTPUT_INVALID"
+  | "OPENAI_COMPATIBLE_EMPTY_OUTPUT";
 
 export class ModelAdapterError extends Error {
   readonly code: ModelAdapterErrorCode;

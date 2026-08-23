@@ -13,9 +13,13 @@ function getHealthLabel(health: AssemblyHealthQuery) {
     return 'indisponible';
   }
 
-  return health.data.modelAdapter === 'codex-cli'
-    ? 'disponible · Codex CLI'
-    : 'disponible · Faux modèle';
+  if (health.data.modelAdapter === 'codex-cli') {
+    return 'disponible · Codex CLI';
+  }
+  if (health.data.modelAdapter === 'openai-compatible') {
+    return 'disponible · Provider local';
+  }
+  return 'disponible · Faux modèle';
 }
 
 export function AppHeader({ health }: AppHeaderProps) {

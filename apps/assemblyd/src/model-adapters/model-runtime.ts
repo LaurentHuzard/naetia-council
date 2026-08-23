@@ -11,6 +11,9 @@ import {
 const DEFAULT_FAKE_TIMEOUT_MS = 10_000;
 const DEFAULT_CODEX_TIMEOUT_MS = 180_000;
 const DEFAULT_CODEX_REVEAL_DELAY_MS = 40;
+const DEFAULT_OPENAI_COMPATIBLE_TIMEOUT_MS = 180_000;
+const DEFAULT_OPENAI_COMPATIBLE_REVEAL_DELAY_MS = 40;
+const DEFAULT_OPENAI_COMPATIBLE_MAX_TOKENS = 512;
 
 export interface ModelRuntime {
   readonly adapter: ModelAdapterMessage;
@@ -31,8 +34,65 @@ export function resolveModelRuntime(
       workerEnvironment: {},
     };
   }
+  if (adapter === "openai-compatible") {
+    const url = requiredNonEmpty(
+      environment["OPENAI_COMPATIBLE_CHAT_URL"],
+      "OPENAI_COMPATIBLE_CHAT_URL",
+    );
+    requireHttpUrl(url, "OPENAI_COMPATIBLE_CHAT_URL");
+    const model = requiredNonEmpty(
+      environment["OPENAI_COMPATIBLE_MODEL"],
+      "OPENAI_COMPATIBLE_MODEL",
+    );
+    const revealDelayMs = parseIntegerSetting(
+      environment["OPENAI_COMPATIBLE_REVEAL_DELAY_MS"],
+      "OPENAI_COMPATIBLE_REVEAL_DELAY_MS",
+      DEFAULT_OPENAI_COMPATIBLE_REVEAL_DELAY_MS,
+      0,
+      5_000,
+    );
+    const maxTokens = parseIntegerSetting(
+      environment["OPENAI_COMPATIBLE_MAX_TOKENS"],
+      "OPENAI_COMPATIBLE_MAX_TOKENS",
+      DEFAULT_OPENAI_COMPATIBLE_MAX_TOKENS,
+      32,
+      4_096,
+    );
+    const enableThinking = parseOptionalBooleanSetting(
+      environment["OPENAI_COMPATIBLE_ENABLE_THINKING"],
+      "OPENAI_COMPATIBLE_ENABLE_THINKING",
+    );
+    const runTimeoutMs = parseIntegerSetting(
+      environment["OPENAI_COMPATIBLE_RUN_TIMEOUT_MS"],
+      "OPENAI_COMPATIBLE_RUN_TIMEOUT_MS",
+      DEFAULT_OPENAI_COMPATIBLE_TIMEOUT_MS,
+      1_000,
+      600_000,
+    );
+    const apiKey = optionalNonEmpty(
+      environment["OPENAI_COMPATIBLE_API_KEY"],
+      "OPENAI_COMPATIBLE_API_KEY",
+    );
+
+    return {
+      adapter,
+      model: agentWorkerModelOptionsSchema.parse({
+        adapter,
+        url,
+        model,
+        maxTokens,
+        ...(enableThinking === undefined ? {} : { enableThinking }),
+        revealDelayMs,
+      }),
+      runTimeoutMs,
+      workerEnvironment:
+        apiKey === undefined ? {} : { OPENAI_COMPATIBLE_API_KEY: apiKey },
+    };
+  }
   if (adapter !== "codex-cli") {
-    throw new Error("MODEL_ADAPTER must be either fake or codex-cli");
+    throw new Error(
+      "MODEL_ADAPTER must be fake, codex-cli or openai-compatible",
+    );
   }
 
   const executablePath = resolveCodexExecutable(
@@ -119,6 +179,26 @@ function optionalNonEmpty(
   return normalized;
 }
 
+function requiredNonEmpty(value: string | undefined, setting: string): string {
+  const normalized = optionalNonEmpty(value, setting);
+  if (normalized === undefined) {
+    throw new Error(`${setting} is required`);
+  }
+  return normalized;
+}
+
+function requireHttpUrl(value: string, setting: string): void {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch (error) {
+    throw new Error(`${setting} must be a valid HTTP URL`, { cause: error });
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`${setting} must be a valid HTTP URL`);
+  }
+}
+
 function parseIntegerSetting(
   value: string | undefined,
   setting: string,
@@ -136,4 +216,20 @@ function parseIntegerSetting(
     );
   }
   return parsed;
+}
+
+function parseOptionalBooleanSetting(
+  value: string | undefined,
+  setting: string,
+): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  throw new Error(`${setting} must be either true or false`);
 }

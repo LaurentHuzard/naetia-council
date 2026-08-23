@@ -84,6 +84,30 @@ describe("council events", () => {
 });
 
 describe("assembly commands", () => {
+  it("accepts OpenAI-compatible worker configuration without provider secrets", () => {
+    const command = parseAgentWorkerCommand({
+      type: "start",
+      runId: "run-local-provider",
+      sessionId: "session-local-provider",
+      agentDefinition: architectDefinition,
+      quest: { title: "Brancher une voix locale" },
+      model: {
+        adapter: "openai-compatible",
+        url: "http://compute-host:8003/v1/chat/completions",
+        model: "local-council-model",
+        maxTokens: 512,
+        enableThinking: false,
+        revealDelayMs: 0,
+      },
+    });
+
+    if (command.type !== "start") {
+      throw new Error("Expected a start worker command");
+    }
+    expect(command.model.adapter).toBe("openai-compatible");
+    expect(JSON.stringify(command)).not.toContain("apiKey");
+  });
+
   it("accepts a variable Council delegation and rejects invalid selections", () => {
     const command = assemblyCommandSchema.parse({
       commandId: "command-convene-1",

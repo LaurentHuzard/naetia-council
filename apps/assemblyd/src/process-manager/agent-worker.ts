@@ -10,6 +10,7 @@ import {
 
 import { CodexCliModelAdapter } from "../model-adapters/codex-cli-model-adapter.js";
 import { FakeModelAdapter } from "../model-adapters/fake-model-adapter.js";
+import { OpenAiCompatibleModelAdapter } from "../model-adapters/openai-compatible-model-adapter.js";
 import {
   ModelAdapterError,
   type ModelAdapter,
@@ -176,10 +177,24 @@ function createModelAdapter(model: AgentWorkerModelOptions): ModelAdapter {
   if (model.adapter === "fake") {
     return new FakeModelAdapter();
   }
-  return new CodexCliModelAdapter({
-    executablePath: model.executablePath,
-    ...(model.model === undefined ? {} : { model: model.model }),
+  if (model.adapter === "codex-cli") {
+    return new CodexCliModelAdapter({
+      executablePath: model.executablePath,
+      ...(model.model === undefined ? {} : { model: model.model }),
+      revealDelayMs: model.revealDelayMs,
+    });
+  }
+  return new OpenAiCompatibleModelAdapter({
+    url: model.url,
+    model: model.model,
+    maxTokens: model.maxTokens,
+    ...(model.enableThinking === undefined
+      ? {}
+      : { enableThinking: model.enableThinking }),
     revealDelayMs: model.revealDelayMs,
+    ...(process.env["OPENAI_COMPATIBLE_API_KEY"] === undefined
+      ? {}
+      : { apiKey: process.env["OPENAI_COMPATIBLE_API_KEY"] }),
   });
 }
 

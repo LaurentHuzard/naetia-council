@@ -23,7 +23,7 @@ export type AssemblyHealth = {
   status: 'ok';
   service?: string;
   timestamp?: string;
-  modelAdapter?: 'fake' | 'codex-cli';
+  modelAdapter?: 'fake' | 'codex-cli' | 'openai-compatible';
   model?: string;
 };
 
@@ -137,7 +137,8 @@ function isAssemblyHealth(value: unknown): value is AssemblyHealth {
     value.status === 'ok' &&
     (!('modelAdapter' in value) ||
       value.modelAdapter === 'fake' ||
-      value.modelAdapter === 'codex-cli') &&
+      value.modelAdapter === 'codex-cli' ||
+      value.modelAdapter === 'openai-compatible') &&
     (!('model' in value) || typeof value.model === 'string')
   );
 }

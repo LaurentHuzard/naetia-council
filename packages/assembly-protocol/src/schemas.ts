@@ -43,7 +43,11 @@ export const agentRunStatusSchema = z.enum([
 export const sessionStatusSchema = z.enum(["draft", "convening", "active", "completed"]);
 export const contributionStatusSchema = z.enum(["streaming", "completed"]);
 export const fragmentStatusSchema = z.enum(["available", "kept", "challenged", "composted"]);
-export const modelAdapterSchema = z.enum(["fake", "codex-cli"]);
+export const modelAdapterSchema = z.enum([
+  "fake",
+  "codex-cli",
+  "openai-compatible",
+]);
 export const sessionSummaryStatusSchema = z.enum(["created", "running", "completed"]);
 
 export const decisionRevisionSchema = z
@@ -467,9 +471,21 @@ const codexCliModelOptionsSchema = z
   })
   .strict();
 
+const openAiCompatibleModelOptionsSchema = z
+  .object({
+    adapter: z.literal("openai-compatible"),
+    url: z.string().url(),
+    model: nonEmptyTextSchema,
+    maxTokens: z.number().int().min(32).max(4_096),
+    enableThinking: z.boolean().optional(),
+    revealDelayMs: z.number().int().nonnegative().max(5_000),
+  })
+  .strict();
+
 export const agentWorkerModelOptionsSchema = z.discriminatedUnion("adapter", [
   fakeModelOptionsSchema,
   codexCliModelOptionsSchema,
+  openAiCompatibleModelOptionsSchema,
 ]);
 
 export const agentWorkerCommandSchema = z.discriminatedUnion("type", [

@@ -83,7 +83,12 @@ function ModelExecutionSummary({
 }: {
   execution: NonNullable<AgentRunSnapshot['modelExecution']>;
 }) {
-  const adapterLabel = execution.adapter === 'codex-cli' ? 'Codex CLI' : 'Faux modèle';
+  const adapterLabel =
+    execution.adapter === 'codex-cli'
+      ? 'Codex CLI'
+      : execution.adapter === 'openai-compatible'
+        ? 'Provider local'
+        : 'Faux modèle';
   const usage = execution.usage;
 
   return (
@@ -125,7 +130,9 @@ function ModelExecutionSummary({
         <p className="model-usage-note">
           {execution.adapter === 'fake'
             ? 'Simulation locale · aucun jeton consommé.'
-            : 'Usage non fourni par Codex CLI.'}
+            : execution.adapter === 'codex-cli'
+              ? 'Usage non fourni par Codex CLI.'
+              : 'Usage non fourni par le provider local.'}
         </p>
       ) : null}
     </section>

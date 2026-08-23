@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -25,6 +27,109 @@ afterEach(async () => {
 });
 
 describe.sequential("The Assembly process boundary", () => {
+  it("runs one selected voice through an OpenAI-compatible compute endpoint", async () => {
+    let authorization: string | undefined;
+    let requestBody: unknown;
+    const provider = createServer((request, response) => {
+      authorization = request.headers.authorization;
+      let body = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk: string) => {
+        body += chunk;
+      });
+      request.on("end", () => {
+        requestBody = JSON.parse(body);
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: "Tester une seule voix locale avant le Council complet.",
+                },
+              },
+            ],
+            usage: { prompt_tokens: 90, completion_tokens: 12 },
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      provider.once("error", reject);
+      provider.listen(0, "127.0.0.1", resolve);
+    });
+
+    try {
+      const address = provider.address() as AddressInfo;
+      const manager = new AgentProcessManager({
+        defaultTimeoutMs: 5_000,
+        workerEnvironment: {
+          OPENAI_COMPATIBLE_API_KEY: "compute-test-key",
+        },
+      });
+      processManagers.push(manager);
+      const orchestrator = new CouncilOrchestrator({
+        processManager: manager,
+        model: {
+          adapter: "openai-compatible",
+          url: `http://127.0.0.1:${String(address.port)}/v1/chat/completions`,
+          model: "local-council-model",
+          maxTokens: 384,
+          enableThinking: false,
+          revealDelayMs: 0,
+        },
+      });
+      orchestrators.push(orchestrator);
+      const created = orchestrator.createSession({
+        title: "Brancher une voix sur le compute local",
+      });
+      orchestrator.convene(created.sessionId, { agentIds: ["architect"] });
+
+      const completed = await waitForSession(
+        orchestrator,
+        created.sessionId,
+        (session) => session.status === "completed",
+      );
+
+      expect(authorization).toBe("Bearer compute-test-key");
+      expect(requestBody).toMatchObject({
+        model: "local-council-model",
+        max_tokens: 384,
+        chat_template_kwargs: { enable_thinking: false },
+        stream: false,
+        messages: [
+          {
+            role: "user",
+            content: expect.stringContaining("Rôle : Architect."),
+          },
+        ],
+      });
+      expect(completed.runs).toEqual([
+        expect.objectContaining({
+          agentId: "architect",
+          status: "completed",
+          contribution:
+            "Tester une seule voix locale avant le Council complet.",
+          modelExecution: {
+            adapter: "openai-compatible",
+            model: "local-council-model",
+            durationMs: expect.any(Number),
+            usage: {
+              inputTokens: 90,
+              cachedInputTokens: 0,
+              outputTokens: 12,
+              reasoningOutputTokens: 0,
+            },
+          },
+        }),
+      ]);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        provider.close((error) => (error === undefined ? resolve() : reject(error)));
+      });
+    }
+  });
+
   it("spawns processes only for the selected Council members", async () => {
     const orchestrator = trackedOrchestrator();
     const created = orchestrator.createSession({ title: "Explorer avec Scout" });
