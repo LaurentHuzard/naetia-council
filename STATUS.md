@@ -1,6 +1,6 @@
 # Naetia Council Status
 
-Dernière mise à jour : 2026-07-20
+Dernière mise à jour : 2026-08-23
 
 ## Statut
 
@@ -12,11 +12,20 @@ Codex d’une révision prennent maintenant explicitement en compte D1 et
 l’intention humaine ; leurs durées et compteurs JSONL sont visibles et rejoués.
 La Chambre affiche maintenant neuf membres, recommande une délégation modifiable
 et ne crée des processus que pour les voix confirmées.
+The Assembly possède aussi un provider OpenAI-compatible opt-in pour déléguer
+les contributions à un serveur de chat local, sans SSH dans le produit et sans
+fallback silencieux.
 
 ## Preuves actuelles
 
 - typecheck, lint et build réussis sur les cinq projets du workspace ;
-- 98 tests réussis : 4 domaine, 17 protocole, 2 registre, 63 daemon et 12 UI ;
+- 112 tests réussis : 4 domaine, 18 protocole, 2 registre, 75 daemon et 13 UI ;
+- vertical slice OpenAI-compatible réussi avec un endpoint loopback synthétique,
+  un worker séparé, authentification Bearer, contribution et métriques journalisées ;
+- smoke test réel réussi avec Qwen3-4B Q4_K_M sur la RTX : une voix Architect
+  terminée en 12,007 s, 270 tokens d’entrée dont 267 en cache et 258 de sortie ;
+- serveurs chat et embeddings observés simultanément à environ 1 924 MiB et
+  4 650 MiB de VRAM, sans arrêt du chemin d’embeddings ;
 - trois processus et trois appels Codex CLI distincts vérifiés ;
 - décision, provenance et Return Point restaurés après rafraîchissement puis
   redémarrage du daemon ;
@@ -41,6 +50,11 @@ et ne crée des processus que pour les voix confirmées.
 - le Port est limité aux huit sessions les plus récentes et n’a ni recherche ni pagination ;
 - la contribution Codex est révélée après réponse plutôt que streamée nativement.
 - l’usage Codex peut être absent et ne constitue ni un coût ni un budget prédictif.
+- le serveur chat RTX est un processus utilisateur lancé par TwinPilot, sans
+  service ni autostart ; sa relance après redémarrage reste une responsabilité
+  opérationnelle ;
+- le premier smoke matériel couvre une seule voix ; avec un seul slot llama.cpp,
+  une délégation étendue attend en file et doit être mesurée avant usage régulier ;
 
 Source opérationnelle détaillée :
 [`docs/mission-control.md`](docs/mission-control.md).

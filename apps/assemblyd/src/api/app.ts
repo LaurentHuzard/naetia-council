@@ -133,14 +133,15 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.get("/health", async () => {
     orchestrator.assertPersistenceAvailable();
+    const configuredModel =
+      modelRuntime.model.adapter === "fake"
+        ? undefined
+        : modelRuntime.model.model;
     return {
       status: "ok",
       service: "assemblyd",
       modelAdapter: modelRuntime.adapter,
-      ...(modelRuntime.model.adapter !== "codex-cli" ||
-      modelRuntime.model.model === undefined
-        ? {}
-        : { model: modelRuntime.model.model }),
+      ...(configuredModel === undefined ? {} : { model: configuredModel }),
     };
   });
 

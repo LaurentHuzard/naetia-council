@@ -23,6 +23,36 @@ describe.sequential("assemblyd HTTP API", () => {
     });
   });
 
+  it("reports the configured OpenAI-compatible model without exposing its endpoint or key", async () => {
+    const app = trackedApp({
+      modelRuntime: {
+        adapter: "openai-compatible",
+        model: {
+          adapter: "openai-compatible",
+          url: "http://compute-host:8003/v1/chat/completions",
+          model: "local-council-model",
+          maxTokens: 512,
+          revealDelayMs: 0,
+        },
+        runTimeoutMs: 5_000,
+        workerEnvironment: {
+          OPENAI_COMPATIBLE_API_KEY: "must-not-leak",
+        },
+      },
+    });
+    const response = await app.inject({ method: "GET", url: "/health" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      status: "ok",
+      service: "assemblyd",
+      modelAdapter: "openai-compatible",
+      model: "local-council-model",
+    });
+    expect(response.body).not.toContain("compute-host");
+    expect(response.body).not.toContain("must-not-leak");
+  });
+
   it("lists recent sessions by durable activity without snapshot cargo", async () => {
     const app = trackedApp();
     const empty = await app.inject({ method: "GET", url: "/sessions" });
@@ -433,8 +463,10 @@ describe.sequential("assemblyd HTTP API", () => {
   });
 });
 
-function trackedApp(): ReturnType<typeof buildApp> {
-  const app = buildApp({ databasePath: ":memory:" });
+function trackedApp(
+  options: Parameters<typeof buildApp>[0] = {},
+): ReturnType<typeof buildApp> {
+  const app = buildApp({ databasePath: ":memory:", ...options });
   apps.push(app);
   return app;
 }
