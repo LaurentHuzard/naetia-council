@@ -52,7 +52,7 @@ Les processus agents ne connaissent ni HTTP ni SQLite. Ils reçoivent un context
 
 ## Prérequis
 
-- Node.js 24 ou plus récent ;
+- Node.js 26 ou plus récent ;
 - pnpm 11.
 
 Pour le mode réel uniquement : Codex CLI installé et authentifié localement. Vérifiez-le avec `codex --version` puis `codex login status`.
